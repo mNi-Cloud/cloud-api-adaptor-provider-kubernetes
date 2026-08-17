@@ -71,7 +71,7 @@ func main() {
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&apiAddr, "api-bind-address", ":8080", "The address the Pod Sandbox API binds to.")
-	flag.StringVar(&sandboxNamespace, "namespace", "cloud-api-adaptor-provider-kubernetes-system",
+	flag.StringVar(&sandboxNamespace, "namespace", "caa-provider-kubernetes-system",
 		"The namespace used for Pod Sandbox resources.")
 	flag.StringVar(&sandboxClassName, "class-name", "default", "The PodSandboxClass used for new sandboxes.")
 	flag.StringVar(&tokenSecretName, "token-secret-name", "pod-sandbox-api",

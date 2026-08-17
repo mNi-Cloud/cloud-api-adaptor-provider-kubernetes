@@ -63,7 +63,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-          - --namespace=cloud-api-adaptor-provider-kubernetes-system
+          - --namespace=caa-provider-kubernetes-system
           - --class-name=default
         image: controller:latest
         name: manager

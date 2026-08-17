@@ -5,7 +5,7 @@ metadata:
     app.kubernetes.io/name: cloud-api-adaptor-provider-kubernetes
     app.kubernetes.io/managed-by: kustomize
   name: example
-  namespace: cloud-api-adaptor-provider-kubernetes-system
+  namespace: caa-provider-kubernetes-system
 spec:
   sandboxID: example
   userDataSecretRef:
