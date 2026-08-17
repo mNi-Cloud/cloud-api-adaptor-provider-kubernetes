@@ -1,0 +1,26 @@
+ARG CAA_COMMIT=ea3ea1f063b10073a551d97e11d31169ca4648f5
+ARG BUILDER_BASE=golang@sha256:3965b9511a9bed199f0b4eb146f99c31971a5c0adb3240d9f25e233cbd9e01c8
+ARG CAA_IMAGE=quay.io/confidential-containers/cloud-api-adaptor:v0.21.1-dev
+
+FROM ${BUILDER_BASE} AS builder
+ARG CAA_COMMIT
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+RUN git clone https://github.com/confidential-containers/cloud-api-adaptor.git . \
+    && git checkout "${CAA_COMMIT}"
+
+COPY config.go client.go provider.go manager.go /work/src/cloud-api-adaptor/cmd/kubernetes-plugin/
+
+WORKDIR /work/src/cloud-api-adaptor
+RUN go mod tidy \
+    && CGO_ENABLED=1 go build -buildvcs=false -o /out/cloud-api-adaptor ./cmd/cloud-api-adaptor \
+	&& CGO_ENABLED=1 go build -buildvcs=false -buildmode=plugin -o /out/kubernetes.so ./cmd/kubernetes-plugin
+
+FROM ${CAA_IMAGE}
+
+COPY --from=builder --chmod=0555 /out/cloud-api-adaptor /usr/local/bin/cloud-api-adaptor
+COPY --from=builder --chmod=0555 /out/kubernetes.so /cloud-providers/kubernetes.so

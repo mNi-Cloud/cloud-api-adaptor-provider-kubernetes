@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- sandbox_v1alpha1_podsandbox.yaml
+- sandbox_v1alpha1_podsandboxclass.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

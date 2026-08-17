@@ -1,0 +1,62 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - sandbox.caa.mnicloud.jp
+  resources:
+  - podsandboxclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - sandbox.caa.mnicloud.jp
+  resources:
+  - podsandboxes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - sandbox.caa.mnicloud.jp
+  resources:
+  - podsandboxes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - sandbox.caa.mnicloud.jp
+  resources:
+  - podsandboxes/status
+  verbs:
+  - get
+  - patch
+  - update

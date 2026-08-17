@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-api-adaptor-provider-kubernetes-controller-manager
+  namespace: cloud-api-adaptor-provider-kubernetes-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: manager
+          imagePullPolicy: Always
+          args:
+            - --namespace=cloud-api-adaptor-provider-kubernetes-system
+            - --class-name=juneau
+            - --leader-elect

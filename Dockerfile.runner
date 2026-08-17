@@ -1,0 +1,19 @@
+ARG BUILDER_BASE=golang@sha256:3965b9511a9bed199f0b4eb146f99c31971a5c0adb3240d9f25e233cbd9e01c8
+
+FROM ${BUILDER_BASE} AS builder
+WORKDIR /workspace
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/runner/ cmd/runner/
+RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags='-s -w' -o /out/runner ./cmd/runner
+
+FROM debian:bookworm-slim
+ADD --checksum=sha256:edd3ceb8de672ec4317a9d68de1f5edc9f48ef2c0283853c7c681332573ff46a \
+    https://github.com/cloud-hypervisor/edk2/releases/download/ch-f308d878a6/CLOUDHV.fd \
+    /usr/share/cloud-hypervisor/CLOUDHV.fd
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends genisoimage iproute2 iptables procps qemu-utils \
+    && chmod 0444 /usr/share/cloud-hypervisor/CLOUDHV.fd \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder --chmod=0555 /out/runner /runner
+ENTRYPOINT ["/runner"]

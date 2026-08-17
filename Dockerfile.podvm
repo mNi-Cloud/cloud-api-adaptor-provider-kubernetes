@@ -1,0 +1,8 @@
+ARG PODVM_IMAGE=quay.io/confidential-containers/podvm-generic-ubuntu-amd64@sha256:2ea3afd8f1726b5f810c62d961bddff10985dab45754847f3fe593dc008334be
+ARG TOOLBOX_IMAGE=busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+
+FROM ${PODVM_IMAGE} AS podvm
+FROM ${TOOLBOX_IMAGE}
+
+COPY --from=podvm /*.qcow2 /podvm/disk.qcow2
+ENTRYPOINT ["cp", "/podvm/disk.qcow2", "/output/disk.qcow2"]

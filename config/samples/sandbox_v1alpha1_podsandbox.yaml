@@ -1,0 +1,16 @@
+apiVersion: sandbox.caa.mnicloud.jp/v1alpha1
+kind: PodSandbox
+metadata:
+  labels:
+    app.kubernetes.io/name: cloud-api-adaptor-provider-kubernetes
+    app.kubernetes.io/managed-by: kustomize
+  name: example
+  namespace: cloud-api-adaptor-provider-kubernetes-system
+spec:
+  sandboxID: example
+  userDataSecretRef:
+    name: example-userdata
+  className: default
+  vcpus: 2
+  memoryMiB: 2048
+  arch: amd64

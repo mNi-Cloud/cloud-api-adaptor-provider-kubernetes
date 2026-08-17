@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pod-sandbox-api
+  namespace: system
+  labels:
+    app.kubernetes.io/name: cloud-api-adaptor-provider-kubernetes
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    control-plane: controller-manager
+    app.kubernetes.io/name: cloud-api-adaptor-provider-kubernetes
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
