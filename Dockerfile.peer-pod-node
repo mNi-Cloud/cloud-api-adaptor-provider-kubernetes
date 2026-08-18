@@ -1,0 +1,71 @@
+ARG CAA_COMMIT=ea3ea1f063b10073a551d97e11d31169ca4648f5
+ARG BUILDER_BASE=golang:1.26@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6
+ARG KATA_DEPLOY_IMAGE=quay.io/kata-containers/kata-deploy:4.0.0
+
+FROM ${BUILDER_BASE} AS builder
+ARG CAA_COMMIT
+RUN apt-get update && apt-get install -y --no-install-recommends git gcc libc6-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /work
+RUN git clone https://github.com/confidential-containers/cloud-api-adaptor.git caa && cd caa && git checkout "${CAA_COMMIT}"
+COPY config.go client.go provider.go manager.go /work/caa/src/cloud-api-adaptor/cmd/kubernetes-plugin/
+WORKDIR /work/caa/src/cloud-api-adaptor
+RUN go mod tidy \
+    && CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags='-s -w' -o /out/cloud-api-adaptor ./cmd/cloud-api-adaptor \
+    && CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags='-s -w' -buildmode=plugin -o /out/kubernetes.so ./cmd/kubernetes-plugin
+WORKDIR /work/provider
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/peer-pod-node ./cmd/peer-pod-node
+RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags='-s -w' -o /out/peer-pod-node ./cmd/peer-pod-node
+
+FROM ${KATA_DEPLOY_IMAGE} AS kata
+
+FROM debian:13-slim AS node-assets
+ARG TARGETARCH
+ARG KUBERNETES_VERSION=v1.36.1
+ARG CONTAINERD_VERSION=2.3.1
+ARG CNI_PLUGINS_VERSION=v1.9.0
+ARG CONTAINERD_SHA256_AMD64=628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054
+ARG CONTAINERD_SHA256_ARM64=46a83603a850f3916ca7c942310daaf82ed17773a85b1d431e92d4a541e46d0d
+ARG KUBELET_SHA256_AMD64=7efa1780c73d9fb3a464002864e582eb2d15aa691e475eaae323093d08feae14
+ARG KUBELET_SHA256_ARM64=bf274dd3affbf2543d20465dee1f763f668f78c6fbd56197794f81337a49d687
+ARG CNI_SHA256_AMD64=58c03705426e929658f45a851df15a86d06ef680cacbf3f2dc127731ca265c28
+ARG CNI_SHA256_ARM64=2596ef56329dd1269026f46b8df262f09ba43c92dbfb940e1e69fbccccd30a29
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl tar zstd \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /rootfs/usr/local /rootfs/opt/cni/bin \
+    && curl -fsSLo /tmp/containerd.tgz "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/containerd-${CONTAINERD_VERSION}-linux-${TARGETARCH}.tar.gz" \
+    && eval "expected=\${CONTAINERD_SHA256_$(echo "$TARGETARCH" | tr '[:lower:]' '[:upper:]')}" \
+    && echo "$expected  /tmp/containerd.tgz" | sha256sum -c - \
+    && tar -C /rootfs/usr/local -xzf /tmp/containerd.tgz \
+    && curl -fsSLo /rootfs/usr/local/bin/kubelet "https://dl.k8s.io/release/${KUBERNETES_VERSION}/bin/linux/${TARGETARCH}/kubelet" \
+    && eval "expected=\${KUBELET_SHA256_$(echo "$TARGETARCH" | tr '[:lower:]' '[:upper:]')}" \
+    && echo "$expected  /rootfs/usr/local/bin/kubelet" | sha256sum -c - \
+    && chmod 0555 /rootfs/usr/local/bin/kubelet \
+    && curl -fsSLo /tmp/cni.tgz "https://github.com/containernetworking/plugins/releases/download/${CNI_PLUGINS_VERSION}/cni-plugins-linux-${TARGETARCH}-${CNI_PLUGINS_VERSION}.tgz" \
+    && eval "expected=\${CNI_SHA256_$(echo "$TARGETARCH" | tr '[:lower:]' '[:upper:]')}" \
+    && echo "$expected  /tmp/cni.tgz" | sha256sum -c - \
+    && tar -C /rootfs/opt/cni/bin -xzf /tmp/cni.tgz \
+    && rm -f /tmp/containerd.tgz /tmp/cni.tgz
+COPY --from=kata /opt/kata-artifacts/tarballs/kata-static-shim-v2-go.tar.zst /tmp/kata-shim.tar.zst
+RUN tar --zstd -C /rootfs -xf /tmp/kata-shim.tar.zst \
+    && rm -f /tmp/kata-shim.tar.zst \
+    && rm -f /rootfs/opt/kata/bin/kata-monitor /rootfs/opt/kata/bin/kata-runtime \
+    && find /rootfs/opt/kata/share/defaults/kata-containers -type f ! -name configuration-remote.toml -delete
+
+FROM debian:13-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates iproute2 iptables mount runc \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=node-assets /rootfs/ /
+RUN ln -s /opt/kata/bin/containerd-shim-kata-v2 /usr/local/bin/containerd-shim-kata-v2 \
+    && sed -i '/^\[runtime\]$/a experimental_force_guest_pull = true' \
+        /opt/kata/share/defaults/kata-containers/configuration-remote.toml
+COPY --from=builder --chmod=0555 /out/cloud-api-adaptor /usr/local/bin/cloud-api-adaptor
+COPY --from=builder --chmod=0555 /out/kubernetes.so /cloud-providers/kubernetes.so
+COPY --from=builder --chmod=0555 /out/peer-pod-node /usr/local/bin/peer-pod-node
+COPY config/peer-pod-node/containerd.toml /etc/containerd/config.toml
+RUN mkdir -p /etc/cni/net.d /etc/peer-pod-node/manifests /var/lib/peer-pod-node /run/peerpod /run/netns
+EXPOSE 8081
+ENTRYPOINT ["/usr/local/bin/peer-pod-node"]

@@ -1,0 +1,26 @@
+apiVersion: kamaji.clastix.io/v1alpha1
+kind: TenantControlPlane
+metadata:
+  name: peer-pods
+  namespace: peer-pods-example
+spec:
+  dataStore: default
+  controlPlane:
+    deployment:
+      replicas: 1
+    service:
+      serviceType: ClusterIP
+  kubernetes:
+    version: v1.36.1
+    kubelet:
+      preferredAddressTypes:
+        - InternalIP
+        - ExternalIP
+        - Hostname
+  networkProfile:
+    clusterDomain: cluster.local
+    podCidr: 10.245.0.0/16
+    serviceCidr: 10.101.0.0/16
+    port: 6443
+  addons:
+    coreDNS: {}

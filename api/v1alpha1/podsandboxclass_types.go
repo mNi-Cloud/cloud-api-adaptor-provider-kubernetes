@@ -26,11 +26,13 @@ import (
 // It intentionally exposes Kubernetes metadata instead of depending on a
 // particular CNI implementation.
 type PodSandboxClassSpec struct {
-	// RunnerImage contains the PodVM launcher.
+	// RunnerImage implements the PodVM runner contract. The implementation may
+	// use any supported virtual machine monitor.
 	// +kubebuilder:validation:MinLength=1
 	RunnerImage string `json:"runnerImage"`
 
-	// PodVMImage is an OCI image that exports disk.qcow2 into /output.
+	// PodVMImage is an OCI image that exports the implementation-specific guest
+	// artifacts into /output.
 	// +kubebuilder:validation:MinLength=1
 	PodVMImage string `json:"podVMImage"`
 
@@ -58,11 +60,11 @@ type PodSandboxClassSpec struct {
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
-	// KataDir is the host directory containing Cloud Hypervisor and the Kata
-	// runtime assets used by the runner.
+	// RuntimeAssetsDir is the host directory containing the VMM and other
+	// implementation-specific assets used by the runner.
 	// +kubebuilder:default="/opt/kata"
 	// +optional
-	KataDir string `json:"kataDir,omitempty"`
+	RuntimeAssetsDir string `json:"runtimeAssetsDir,omitempty"`
 
 	// MemoryOverheadMiB is reserved in addition to guest memory.
 	// +kubebuilder:validation:Minimum=0
@@ -71,7 +73,7 @@ type PodSandboxClassSpec struct {
 	MemoryOverheadMiB int64 `json:"memoryOverheadMiB,omitempty"`
 
 	// StartupGraceSeconds delays readiness until guest initialization has
-	// completed after Cloud Hypervisor starts.
+	// completed after the PodVM starts.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=300
 	// +kubebuilder:default=30

@@ -9,3 +9,8 @@
 # Re-include Go module files
 !go.mod
 !go.sum
+
+# Peer Pod Node runtime configuration
+!config/peer-pod-node/
+!config/peer-pod-node/*.toml
+!config/peer-pod-node/*.yaml

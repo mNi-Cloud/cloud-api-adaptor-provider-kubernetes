@@ -31,7 +31,7 @@ const (
 	guestIP         = "192.0.2.2"
 	forwarderPort   = "15150"
 	proxyPort       = "3128"
-	vxlanPort       = "8472"
+	vxlanPort       = "4789"
 	commandAdd      = "add"
 	commandDevice   = "dev"
 	commandSet      = "set"
@@ -42,14 +42,14 @@ const (
 )
 
 type options struct {
-	cpus       int
-	memoryMiB  int
-	networkMTU int
-	image      string
-	userData   string
-	stateDir   string
-	kataDir    string
-	firmware   string
+	cpus             int
+	memoryMiB        int
+	networkMTU       int
+	imageDir         string
+	configDir        string
+	stateDir         string
+	runtimeAssetsDir string
+	firmware         string
 }
 
 type readyOptions struct {
@@ -101,10 +101,10 @@ func parseRunOptions(args []string) options {
 	flags.IntVar(&opts.cpus, "cpus", 1, "number of PodVM CPUs")
 	flags.IntVar(&opts.memoryMiB, "memory-mib", 512, "PodVM memory in MiB")
 	flags.IntVar(&opts.networkMTU, "network-mtu", 1400, "PodVM network MTU")
-	flags.StringVar(&opts.image, "image", "", "immutable raw PodVM image")
-	flags.StringVar(&opts.userData, "user-data", "", "CAA-generated cloud-init user-data")
+	flags.StringVar(&opts.imageDir, "image-dir", "", "directory containing PodVM image artifacts")
+	flags.StringVar(&opts.configDir, "config-dir", "", "directory containing PodVM configuration artifacts")
 	flags.StringVar(&opts.stateDir, "state-dir", defaultStateDir, "writable PodVM state directory")
-	flags.StringVar(&opts.kataDir, "kata-dir", "/opt/kata", "Kata installation directory")
+	flags.StringVar(&opts.runtimeAssetsDir, "runtime-assets-dir", "/opt/podvm-runtime", "PodVM runtime assets directory")
 	flags.StringVar(&opts.firmware, "firmware", "/usr/share/cloud-hypervisor/CLOUDHV.fd", "Cloud Hypervisor UEFI firmware")
 	_ = flags.Parse(args)
 	return opts
@@ -130,8 +130,8 @@ func run(opts options) error {
 	if opts.cpus < 1 || opts.memoryMiB < 128 {
 		return fmt.Errorf("invalid capacity: cpus=%d memoryMiB=%d", opts.cpus, opts.memoryMiB)
 	}
-	if opts.image == "" || opts.userData == "" {
-		return errors.New("--image and --user-data are required")
+	if opts.imageDir == "" || opts.configDir == "" {
+		return errors.New("--image-dir and --config-dir are required")
 	}
 	if err := os.MkdirAll(opts.stateDir, 0o700); err != nil {
 		return err
@@ -165,7 +165,7 @@ func run(opts options) error {
 
 	socket := filepath.Join(opts.stateDir, "cloud-hypervisor.sock")
 	_ = os.Remove(socket)
-	cloudHypervisor := filepath.Join(opts.kataDir, "bin", "cloud-hypervisor")
+	cloudHypervisor := filepath.Join(opts.runtimeAssetsDir, "bin", "cloud-hypervisor")
 	rootDisk := filepath.Join(opts.stateDir, "root.qcow2")
 	seedDisk := filepath.Join(opts.stateDir, "cidata.img")
 	cmd := exec.Command(cloudHypervisor,
@@ -207,14 +207,15 @@ func run(opts options) error {
 
 func prepareDisks(opts options, network networkState, guestMAC string) error {
 	rootDisk := filepath.Join(opts.stateDir, "root.qcow2")
-	if err := command("qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", opts.image, rootDisk); err != nil {
+	image := filepath.Join(opts.imageDir, "disk.qcow2")
+	if err := command("qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", image, rootDisk); err != nil {
 		return fmt.Errorf("create root overlay: %w", err)
 	}
 	seedDir := filepath.Join(opts.stateDir, "cidata")
 	if err := os.MkdirAll(seedDir, 0o700); err != nil {
 		return err
 	}
-	userData, err := os.ReadFile(opts.userData)
+	userData, err := os.ReadFile(filepath.Join(opts.configDir, "userdata"))
 	if err != nil {
 		return err
 	}

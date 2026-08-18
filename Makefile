@@ -1,8 +1,9 @@
 # Image URL to use all building/pushing image targets
 VERSION ?= dev
 IMG ?= ghcr.io/mni-cloud/cloud-api-adaptor-provider-kubernetes-controller:$(VERSION)
-RUNNER_IMAGE ?= ghcr.io/mni-cloud/cloud-api-adaptor-provider-kubernetes-runner
+RUNNER_IMAGE ?= ghcr.io/mni-cloud/cloud-api-adaptor-provider-kubernetes-runner-cloud-hypervisor
 PODVM_IMAGE ?= ghcr.io/mni-cloud/cloud-api-adaptor-provider-kubernetes-podvm
+PEER_POD_NODE_IMAGE ?= ghcr.io/mni-cloud/cloud-api-adaptor-provider-kubernetes-peer-pod-node:$(VERSION)
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -129,6 +130,10 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+.PHONY: docker-build-peer-pod-node
+docker-build-peer-pod-node: ## Build the reusable PeerPodNode image.
+	$(CONTAINER_TOOL) build -f Dockerfile.peer-pod-node -t $(PEER_POD_NODE_IMAGE) .
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
