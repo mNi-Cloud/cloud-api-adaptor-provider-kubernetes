@@ -191,11 +191,29 @@ KUBERNETES_POD_SANDBOX_TOKEN=<cluster-scoped bearer token>
 KUBERNETES_POD_SANDBOX_TIMEOUT=2m
 ```
 
-The current API server accepts one configured bearer token. For strict
-per-cluster isolation, deploy a provider API instance per service instance (or
-place an authenticating gateway in front of it). Do not treat one shared
-administrator token as a multi-tenant authorization model. Native multi-tenant
-token-to-namespace authorization is future work.
+The configured bearer token grants access to the provider's default
+`PodSandboxClass`. A KaaS controller can grant an individual service instance
+access to exactly one other class by creating a Secret in the provider
+namespace:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-a
+  namespace: caa-provider-kubernetes-system
+  labels:
+    sandbox.caa.mnicloud.jp/access: "true"
+type: Opaque
+stringData:
+  token: <cryptographically-random-token>
+  className: cluster-a
+```
+
+Pass that token only to the corresponding PeerPodNode. The API uses the mapped
+class for configuration and sandbox creation, and rejects deletion of a
+sandbox owned by another class. The upper KaaS layer owns creation, rotation,
+and removal of these per-instance credentials and classes.
 
 ### 5. Supply workload networking
 

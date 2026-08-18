@@ -31,6 +31,14 @@ type Config struct {
 	ClassName       string
 }
 
+const (
+	AccessSecretLabel    = "sandbox.caa.mnicloud.jp/access"
+	AccessSecretTokenKey = "token"
+	AccessSecretClassKey = "className"
+)
+
+type authorizedClassContextKey struct{}
+
 type Server struct {
 	client client.Client
 	config Config
@@ -77,7 +85,7 @@ type providerConfigResponse struct {
 }
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
-	sandboxClass, err := s.getClass(r.Context())
+	sandboxClass, err := s.getClass(r.Context(), authorizedClass(r.Context()))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -89,10 +97,10 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, providerConfigResponse{NetworkMTU: networkMTU})
 }
 
-func (s *Server) getClass(ctx context.Context) (*sandboxv1alpha1.PodSandboxClass, error) {
+func (s *Server) getClass(ctx context.Context, className string) (*sandboxv1alpha1.PodSandboxClass, error) {
 	var sandboxClass sandboxv1alpha1.PodSandboxClass
-	if err := s.client.Get(ctx, types.NamespacedName{Name: s.config.ClassName}, &sandboxClass); err != nil {
-		return nil, fmt.Errorf("get PodSandboxClass %q: %w", s.config.ClassName, err)
+	if err := s.client.Get(ctx, types.NamespacedName{Name: className}, &sandboxClass); err != nil {
+		return nil, fmt.Errorf("get PodSandboxClass %q: %w", className, err)
 	}
 	return &sandboxClass, nil
 }
@@ -122,18 +130,54 @@ func (*Server) NeedLeaderElection() bool { return true }
 
 func (s *Server) authorize(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		expected, err := s.token(r.Context())
+		className, err := s.authorizedClass(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		if err != nil {
 			http.Error(w, "authorization is unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if len(got) != len(expected) || subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
+		if className == "" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		next(w, r)
+		next(w, r.WithContext(context.WithValue(r.Context(), authorizedClassContextKey{}, className)))
 	}
+}
+
+func (s *Server) authorizedClass(ctx context.Context, got string) (string, error) {
+	expected, err := s.token(ctx)
+	if err != nil {
+		return "", err
+	}
+	if tokenMatches(got, expected) {
+		return s.config.ClassName, nil
+	}
+
+	var accesses corev1.SecretList
+	if err := s.client.List(ctx, &accesses, client.InNamespace(s.config.Namespace), client.MatchingLabels{AccessSecretLabel: "true"}); err != nil {
+		return "", fmt.Errorf("list Pod Sandbox API access secrets: %w", err)
+	}
+	matchedClass := ""
+	for i := range accesses.Items {
+		candidate := string(accesses.Items[i].Data[AccessSecretTokenKey])
+		if !tokenMatches(got, candidate) {
+			continue
+		}
+		className := string(accesses.Items[i].Data[AccessSecretClassKey])
+		if className == "" || (matchedClass != "" && matchedClass != className) {
+			return "", errors.New("pod sandbox API access secret is invalid")
+		}
+		matchedClass = className
+	}
+	return matchedClass, nil
+}
+
+func tokenMatches(got, expected string) bool {
+	return got != "" && len(got) == len(expected) && subtle.ConstantTimeCompare([]byte(got), []byte(expected)) == 1
+}
+
+func authorizedClass(ctx context.Context) string {
+	className, _ := ctx.Value(authorizedClassContextKey{}).(string)
+	return className
 }
 
 func (s *Server) token(ctx context.Context) (string, error) {
@@ -179,7 +223,8 @@ func (s *Server) ensureTokenSecret(ctx context.Context) error {
 }
 
 func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.getClass(r.Context()); err != nil {
+	className := authorizedClass(r.Context())
+	if _, err := s.getClass(r.Context(), className); err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -229,7 +274,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 			Spec: sandboxv1alpha1.PodSandboxSpec{
 				SandboxID:         request.SandboxID,
 				UserDataSecretRef: corev1.LocalObjectReference{Name: secret.Name},
-				ClassName:         s.config.ClassName,
+				ClassName:         className,
 				VCPUs:             request.VCPUs,
 				MemoryMiB:         request.MemoryMiB,
 				Arch:              request.Arch,
@@ -244,7 +289,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		if err := controllerutil.SetControllerReference(&sandbox, secret, s.client.Scheme()); err == nil {
 			_ = s.client.Update(r.Context(), secret)
 		}
-	} else if sandbox.Spec.SandboxID != request.SandboxID {
+	} else if sandbox.Spec.SandboxID != request.SandboxID || sandbox.Spec.ClassName != className {
 		http.Error(w, "sandbox identity conflict", http.StatusConflict)
 		return
 	}
@@ -280,7 +325,19 @@ func (s *Server) deleteSandbox(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid sandbox id", http.StatusBadRequest)
 		return
 	}
-	sandbox := &sandboxv1alpha1.PodSandbox{ObjectMeta: metav1.ObjectMeta{Name: id, Namespace: s.config.Namespace}}
+	sandbox := &sandboxv1alpha1.PodSandbox{}
+	if err := s.client.Get(r.Context(), types.NamespacedName{Name: id, Namespace: s.config.Namespace}, sandbox); err != nil {
+		if apierrors.IsNotFound(err) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if sandbox.Spec.ClassName != authorizedClass(r.Context()) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if err := s.client.Delete(r.Context(), sandbox); err != nil && !apierrors.IsNotFound(err) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
