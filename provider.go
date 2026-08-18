@@ -88,12 +88,16 @@ func (p *kubernetesProvider) CreateInstance(
 const agentProtocolForwarderConfigPath = "/run/peerpod/apf.json"
 
 const (
-	guestProxyURL      = "http://192.0.2.1:3128"
-	cdhProxyDropInPath = "/etc/systemd/system/confidential-data-hub.service.d/proxy.conf"
-	cdhProxyDropIn     = "[Service]\n" +
+	guestProxyURL         = "http://192.0.2.1:3128"
+	cdhProxyDropInPath    = "/etc/systemd/system/confidential-data-hub.service.d/proxy.conf"
+	apfOrderingDropInPath = "/etc/systemd/system/agent-protocol-forwarder.service.d/ordering.conf"
+	cdhProxyDropIn        = "[Service]\n" +
 		"Environment=\"HTTP_PROXY=" + guestProxyURL + "\"\n" +
 		"Environment=\"HTTPS_PROXY=" + guestProxyURL + "\"\n" +
 		"Environment=\"NO_PROXY=127.0.0.1,localhost\"\n"
+	apfOrderingDropIn = "[Unit]\n" +
+		"Requires=netns@podns.service\n" +
+		"After=cloud-init.service netns@podns.service\n"
 )
 
 func generateUserData(generator cloudinit.CloudConfigGenerator, networkMTU int) (string, error) {
@@ -104,6 +108,7 @@ func generateUserData(generator cloudinit.CloudConfigGenerator, networkMTU int) 
 
 	adjusted := *config
 	adjusted.WriteFiles = append([]cloudinit.WriteFile(nil), config.WriteFiles...)
+	var apfConfig []byte
 	for i := range adjusted.WriteFiles {
 		if adjusted.WriteFiles[i].Path != agentProtocolForwarderConfigPath {
 			continue
@@ -128,6 +133,10 @@ func generateUserData(generator cloudinit.CloudConfigGenerator, networkMTU int) 
 			return "", fmt.Errorf("encode agent protocol forwarder config: %w", err)
 		}
 		adjusted.WriteFiles[i].Content = string(encoded)
+		apfConfig = encoded
+	}
+	if len(apfConfig) == 0 {
+		return "", fmt.Errorf("agent protocol forwarder config is missing")
 	}
 	generated, err := adjusted.Generate()
 	if err != nil {
@@ -136,12 +145,28 @@ func generateUserData(generator cloudinit.CloudConfigGenerator, networkMTU int) 
 	// bootcmd runs before the guest services are started. Installing and loading
 	// the drop-in here avoids restarting CDH after Kata Agent has established its
 	// TTRPC client, which would invalidate that connection.
+	encodedAPFConfig := base64.StdEncoding.EncodeToString(apfConfig)
+	encodedAPFOrdering := base64.StdEncoding.EncodeToString([]byte(apfOrderingDropIn))
 	encodedDropIn := base64.StdEncoding.EncodeToString([]byte(cdhProxyDropIn))
 	proxySetup := fmt.Sprintf(
 		"\nbootcmd:\n"+
+			"  - [systemctl, mask, --runtime, agent-protocol-forwarder.service]\n"+
+			"  - [systemctl, stop, --no-block, agent-protocol-forwarder.service]\n"+
+			"  - [mkdir, -p, /run/peerpod]\n"+
+			"  - [sh, -c, \"echo %s | base64 -d > %s\"]\n"+
+			"  - [mkdir, -p, /etc/systemd/system/agent-protocol-forwarder.service.d]\n"+
+			"  - [sh, -c, \"echo %s | base64 -d > %s\"]\n"+
 			"  - [mkdir, -p, /etc/systemd/system/confidential-data-hub.service.d]\n"+
 			"  - [sh, -c, \"echo %s | base64 -d > %s\"]\n"+
-			"  - [systemctl, daemon-reload]\n",
+			"  - [systemctl, daemon-reload]\n"+
+			"\nruncmd:\n"+
+			"  - [systemctl, unmask, --runtime, agent-protocol-forwarder.service]\n"+
+			"  - [systemctl, daemon-reload]\n"+
+			"  - [systemctl, restart, --no-block, agent-protocol-forwarder.service]\n",
+		encodedAPFConfig,
+		agentProtocolForwarderConfigPath,
+		encodedAPFOrdering,
+		apfOrderingDropInPath,
 		encodedDropIn,
 		cdhProxyDropInPath,
 	)
