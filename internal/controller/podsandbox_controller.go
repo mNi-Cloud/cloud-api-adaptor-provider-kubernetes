@@ -23,17 +23,17 @@ import (
 )
 
 const (
-	runnerContainerName = "runner"
-	defaultKataDir      = "/opt/kata"
-	defaultNetworkMTU   = 1500
-	defaultOverheadMiB  = 256
-	defaultStartupGrace = 30
-	volumeImage         = "image"
-	volumeConfig        = "config"
-	volumeState         = "state"
-	volumeKata          = "kata"
-	volumeKVM           = "kvm"
-	volumeTUN           = "tun"
+	runnerContainerName     = "runner"
+	defaultRuntimeAssetsDir = "/opt/kata"
+	defaultNetworkMTU       = 1500
+	defaultOverheadMiB      = 256
+	defaultStartupGrace     = 30
+	volumeImage             = "image"
+	volumeConfig            = "config"
+	volumeState             = "state"
+	volumeRuntimeAssets     = "runtime-assets"
+	volumeKVM               = "kvm"
+	volumeTUN               = "tun"
 )
 
 type PodSandboxReconciler struct {
@@ -110,7 +110,7 @@ func (r *PodSandboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		Status:             boolCondition(ready),
 		ObservedGeneration: sandbox.Generation,
 		Reason:             map[bool]string{true: "PodVMReady", false: "PodVMStarting"}[ready],
-		Message:            map[bool]string{true: "The Kata PodVM is ready", false: "Waiting for the Cloud Hypervisor PodVM"}[ready],
+		Message:            map[bool]string{true: "The PodVM is ready", false: "Waiting for the PodVM runtime"}[ready],
 	})
 	if err := r.Status().Patch(ctx, &sandbox, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -126,9 +126,9 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 	if networkMTU == 0 {
 		networkMTU = defaultNetworkMTU
 	}
-	kataDir := sandboxClass.Spec.KataDir
-	if kataDir == "" {
-		kataDir = defaultKataDir
+	runtimeAssetsDir := sandboxClass.Spec.RuntimeAssetsDir
+	if runtimeAssetsDir == "" {
+		runtimeAssetsDir = defaultRuntimeAssetsDir
 	}
 	overhead := sandboxClass.Spec.MemoryOverheadMiB
 	if overhead == 0 {
@@ -183,10 +183,10 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 					fmt.Sprintf("--cpus=%d", sandbox.Spec.VCPUs),
 					fmt.Sprintf("--memory-mib=%d", sandbox.Spec.MemoryMiB),
 					fmt.Sprintf("--network-mtu=%d", networkMTU),
-					"--image=/var/lib/podvm/image/disk.qcow2",
-					"--user-data=/var/lib/podvm/config/userdata",
+					"--image-dir=/var/lib/podvm/image",
+					"--config-dir=/var/lib/podvm/config",
 					"--state-dir=/run/pod-sandbox",
-					"--kata-dir=/opt/kata",
+					"--runtime-assets-dir=/opt/podvm-runtime",
 				},
 				Resources: resources,
 				SecurityContext: &corev1.SecurityContext{
@@ -198,7 +198,7 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 					{Name: volumeImage, MountPath: "/var/lib/podvm/image", ReadOnly: true},
 					{Name: volumeConfig, MountPath: "/var/lib/podvm/config", ReadOnly: true},
 					{Name: volumeState, MountPath: "/run/pod-sandbox"},
-					{Name: volumeKata, MountPath: "/opt/kata", ReadOnly: true},
+					{Name: volumeRuntimeAssets, MountPath: "/opt/podvm-runtime", ReadOnly: true},
 					{Name: volumeKVM, MountPath: "/dev/kvm"},
 					{Name: volumeTUN, MountPath: "/dev/net/tun"},
 				},
@@ -215,7 +215,7 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 				{Name: volumeImage, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 				{Name: volumeConfig, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: sandbox.Spec.UserDataSecretRef.Name}}},
 				{Name: volumeState, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-				{Name: volumeKata, VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: kataDir, Type: ptr.To(corev1.HostPathDirectory)}}},
+				{Name: volumeRuntimeAssets, VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: runtimeAssetsDir, Type: ptr.To(corev1.HostPathDirectory)}}},
 				{Name: volumeKVM, VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/kvm", Type: ptr.To(corev1.HostPathCharDev)}}},
 				{Name: volumeTUN, VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/dev/net/tun", Type: ptr.To(corev1.HostPathCharDev)}}},
 			},

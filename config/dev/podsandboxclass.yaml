@@ -3,13 +3,13 @@ kind: PodSandboxClass
 metadata:
   name: juneau
 spec:
-  runnerImage: localhost:5005/pod-sandbox-runner-kubernetes:dev
+  runnerImage: localhost:5005/pod-sandbox-runner-cloud-hypervisor:dev
   podVMImage: localhost:5005/podvm-kubernetes:dev
   networkMTU: 1400
   annotations:
     juneau.loutres.me/subnet: default
   nodeSelector:
     mnicloud.jp/kata: "true"
-  kataDir: /opt/kata
+  runtimeAssetsDir: /opt/kata
   memoryOverheadMiB: 256
   startupGraceSeconds: 30

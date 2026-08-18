@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - tenant-control-plane.yaml
+  - cni.yaml
+
+# peer-pod-node.yaml is intentionally separate. The KaaS controller applies it
+# only after creating the cluster-specific peer-pod-node-credentials Secret.

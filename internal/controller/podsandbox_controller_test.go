@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"slices"
 	"testing"
 
 	sandboxv1alpha1 "github.com/mNi-Cloud/cloud-api-adaptor-provider-kubernetes/api/v1alpha1"
@@ -52,6 +53,15 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 	if container.Image != "example.test/runner:v1" {
 		t.Fatalf("unexpected runner image %q", container.Image)
 	}
+	for _, expected := range []string{
+		"--image-dir=/var/lib/podvm/image",
+		"--config-dir=/var/lib/podvm/config",
+		"--runtime-assets-dir=/opt/podvm-runtime",
+	} {
+		if !contains(container.Args, expected) {
+			t.Errorf("runner args do not contain contract argument %q: %#v", expected, container.Args)
+		}
+	}
 	if container.SecurityContext == nil || container.SecurityContext.Privileged == nil || !*container.SecurityContext.Privileged {
 		t.Fatal("runner requires KVM/TUN and network namespace privileges")
 	}
@@ -61,7 +71,7 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 	if got := container.ReadinessProbe.Exec.Command; len(got) != 4 || got[3] != "--startup-grace-seconds=45" {
 		t.Fatalf("runner readiness lost the class startup grace: %#v", got)
 	}
-	wants := map[string]bool{"kata": false, "kvm": false, "tun": false, "image": false, "config": false, "state": false}
+	wants := map[string]bool{"runtime-assets": false, "kvm": false, "tun": false, "image": false, "config": false, "state": false}
 	for _, mount := range container.VolumeMounts {
 		if _, ok := wants[mount.Name]; ok {
 			wants[mount.Name] = true
@@ -72,6 +82,10 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 			t.Errorf("runner is missing %s mount", name)
 		}
 	}
+}
+
+func contains(values []string, expected string) bool {
+	return slices.Contains(values, expected)
 }
 
 func TestDesiredRunnerDoesNotRequireJuneauOrMNiMetadata(t *testing.T) {

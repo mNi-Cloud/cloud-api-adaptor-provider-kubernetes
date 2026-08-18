@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: peer-pod-node
+  namespace: peer-pods-example
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: peer-pod-node
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: peer-pod-node
+  namespace: peer-pods-example
+spec:
+  serviceName: peer-pod-node
+  replicas: 1
+  updateStrategy:
+    type: OnDelete
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: peer-pod-node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: peer-pod-node
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: peer-pod-node
+          image: ghcr.io/mni-cloud/cloud-api-adaptor-provider-kubernetes-peer-pod-node:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: PEER_POD_NODE_NAME
+              value: peer-pod-node
+            - name: PEER_POD_NODE_CLUSTER_DNS
+              value: 10.101.0.10
+            - name: PEER_POD_NODE_CLUSTER_DOMAIN
+              value: cluster.local
+            - name: PEERPODS_LIMIT_PER_NODE
+              value: "10"
+            - name: KUBERNETES_SERVICE_HOST
+              value: peer-pods.peer-pods-example.svc
+            - name: KUBERNETES_SERVICE_PORT
+              value: "6443"
+            - name: KUBERNETES_POD_SANDBOX_ENDPOINT
+              value: http://caa-provider-kubernetes-pod-sandbox-api.caa-provider-kubernetes-system.svc:8080
+            - name: KUBERNETES_POD_SANDBOX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: peer-pod-node-credentials
+                  key: provider-token
+          ports:
+            - name: health
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: credentials
+              mountPath: /etc/peer-pod-node/bootstrap-kubeconfig
+              subPath: bootstrap-kubeconfig
+              readOnly: true
+            - name: credentials
+              mountPath: /etc/peer-pod-node/cluster-ca.crt
+              subPath: workload-ca.crt
+              readOnly: true
+            - name: credentials
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount/token
+              subPath: workload-token
+              readOnly: true
+            - name: credentials
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              subPath: workload-ca.crt
+              readOnly: true
+            - name: cni
+              mountPath: /etc/cni/net.d
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/peer-pod-node
+              mountPropagation: Bidirectional
+            - name: containerd-state
+              mountPath: /var/lib/containerd
+            - name: cni-state
+              mountPath: /var/lib/cni
+            - name: containerd-run
+              mountPath: /run/containerd
+            - name: peerpod-run
+              mountPath: /run/peerpod
+            - name: netns
+              mountPath: /run/netns
+              mountPropagation: Bidirectional
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+            - name: journal-syslog
+              mountPath: /run/systemd/journal/dev-log
+            - name: xtables-lock
+              mountPath: /run/xtables.lock
+      volumes:
+        - name: credentials
+          secret:
+            secretName: peer-pod-node-credentials
+        - name: cni
+          configMap:
+            name: peer-pod-node-cni
+        - name: containerd-state
+          emptyDir: {}
+        - name: cni-state
+          emptyDir: {}
+        - name: containerd-run
+          emptyDir: {}
+        - name: peerpod-run
+          emptyDir: {}
+        - name: netns
+          emptyDir: {}
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+        - name: modules
+          hostPath:
+            path: /lib/modules
+        - name: journal-syslog
+          hostPath:
+            path: /run/systemd/journal/dev-log
+            type: Socket
+        - name: xtables-lock
+          hostPath:
+            path: /run/xtables.lock
+            type: FileOrCreate
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
