@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -32,13 +33,28 @@ func TestGenerateUserDataCapsSandboxMTU(t *testing.T) {
 	if strings.Contains(config.WriteFiles[0].Content, `1400`) {
 		t.Fatal("input cloud config was mutated")
 	}
-	for _, expected := range []string{cdhProxyDropInPath, "bootcmd:", "base64 -d", "systemctl, daemon-reload"} {
+	for _, expected := range []string{
+		agentProtocolForwarderConfigPath,
+		apfOrderingDropInPath,
+		cdhProxyDropInPath,
+		"bootcmd:",
+		"base64 -d",
+		"systemctl, mask, --runtime, agent-protocol-forwarder.service",
+		"systemctl, stop, --no-block, agent-protocol-forwarder.service",
+		"systemctl, daemon-reload",
+		"runcmd:",
+		"systemctl, unmask, --runtime, agent-protocol-forwarder.service",
+		"systemctl, restart, --no-block, agent-protocol-forwarder.service",
+	} {
 		if !strings.Contains(userData, expected) {
 			t.Fatalf("generated cloud config does not contain %q: %s", expected, userData)
 		}
 	}
 	if strings.Contains(userData, "restart, confidential-data-hub.service") {
 		t.Fatalf("CDH must not be restarted after Kata Agent connects: %s", userData)
+	}
+	if !strings.Contains(userData, base64.StdEncoding.EncodeToString([]byte(apfOrderingDropIn))) {
+		t.Fatalf("APF service ordering is missing: %s", userData)
 	}
 }
 
