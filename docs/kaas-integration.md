@@ -199,9 +199,9 @@ KUBERNETES_POD_SANDBOX_TIMEOUT=2m
 ```
 
 The configured bearer token grants access to the provider's default
-`PodSandboxClass`. A KaaS controller can grant an individual service instance
-access to exactly one other class by creating a Secret in the provider
-namespace:
+`PodSandboxClass` and default sandbox namespace. A KaaS controller can grant
+an individual service instance access to exactly one class and one sandbox
+namespace by creating a Secret in the provider namespace:
 
 ```yaml
 apiVersion: v1
@@ -215,12 +215,15 @@ type: Opaque
 stringData:
   token: <cryptographically-random-token>
   className: cluster-a
+  namespace: cluster-a-runtime
 ```
 
 Pass that token only to the corresponding PeerPodNode. The API uses the mapped
-class for configuration and sandbox creation, and rejects deletion of a
-sandbox owned by another class. The upper KaaS layer owns creation, rotation,
-and removal of these per-instance credentials and classes.
+class for configuration and creates `PodSandbox`, runner Pod, and userdata
+Secret resources in the mapped namespace. It rejects deletion of a sandbox
+outside the token's namespace or owned by another class. The namespace must
+already exist. The upper KaaS layer owns creation, rotation, and removal of
+these per-instance credentials, classes, and namespaces.
 
 ### 5. Supply workload networking
 

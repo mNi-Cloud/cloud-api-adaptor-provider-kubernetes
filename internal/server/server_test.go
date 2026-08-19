@@ -30,7 +30,7 @@ func TestCreateSandboxPersistsWorkloadReference(t *testing.T) {
 		WithStatusSubresource(&sandboxv1alpha1.PodSandbox{}).
 		WithObjects(&sandboxv1alpha1.PodSandboxClass{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a"}}).
 		Build()
-	server, err := New(kubeClient, Config{Namespace: "sandbox", ClassName: "cluster-a", Token: "secret"})
+	server, err := New(kubeClient, Config{Namespace: "provider-system", ClassName: "cluster-a", Token: "secret"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestCreateSandboxPersistsWorkloadReference(t *testing.T) {
 	requestContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	request := httptest.NewRequest(http.MethodPost, "/v1/sandboxes", bytes.NewReader(body)).WithContext(requestContext)
-	request = request.WithContext(context.WithValue(request.Context(), authorizedClassContextKey{}, "cluster-a"))
+	request = request.WithContext(context.WithValue(request.Context(), authorizedAccessContextKey{}, authorizedAccess{ClassName: "cluster-a", Namespace: "sandbox"}))
 	response := httptest.NewRecorder()
 	server.createSandbox(response, request)
 	if err := <-updated; err != nil {
@@ -165,7 +165,7 @@ func TestCreateSandboxRejectsAnotherClassIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/v1/sandboxes", bytes.NewReader(body))
-	request = request.WithContext(context.WithValue(request.Context(), authorizedClassContextKey{}, "cluster-b"))
+	request = request.WithContext(context.WithValue(request.Context(), authorizedAccessContextKey{}, authorizedAccess{ClassName: "cluster-b", Namespace: "sandbox"}))
 	response := httptest.NewRecorder()
 	server.createSandbox(response, request)
 	if response.Code != http.StatusConflict {
@@ -196,7 +196,7 @@ func TestDeleteSandboxRejectsAnotherClass(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodDelete, "/v1/sandboxes/psb-one", nil)
 	request.SetPathValue("id", "psb-one")
-	request = request.WithContext(context.WithValue(request.Context(), authorizedClassContextKey{}, "cluster-b"))
+	request = request.WithContext(context.WithValue(request.Context(), authorizedAccessContextKey{}, authorizedAccess{ClassName: "cluster-b", Namespace: "sandbox"}))
 	response := httptest.NewRecorder()
 	server.deleteSandbox(response, request)
 	if response.Code != http.StatusForbidden {
@@ -230,24 +230,28 @@ func TestAuthorizedClassUsesAccessSecret(t *testing.T) {
 	}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "default-token", Namespace: "sandbox"}, Data: map[string][]byte{"token": []byte("default-secret")}},
-		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a", Namespace: "sandbox", Labels: map[string]string{AccessSecretLabel: "true"}}, Data: map[string][]byte{AccessSecretTokenKey: []byte("cluster-secret"), AccessSecretClassKey: []byte("cluster-a")}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a", Namespace: "sandbox", Labels: map[string]string{AccessSecretLabel: "true"}}, Data: map[string][]byte{AccessSecretTokenKey: []byte("cluster-secret"), AccessSecretClassKey: []byte("cluster-a"), AccessSecretNamespaceKey: []byte("cluster-a-sandboxes")}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "invalid", Namespace: "sandbox", Labels: map[string]string{AccessSecretLabel: "true"}}, Data: map[string][]byte{AccessSecretTokenKey: []byte("invalid-secret"), AccessSecretClassKey: []byte("cluster-b")}},
 	).Build()
 	server, err := New(client, Config{Namespace: "sandbox", ClassName: "default", TokenSecretName: "default-token"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	className, err := server.authorizedClass(context.Background(), "cluster-secret")
+	access, err := server.authorizedAccess(context.Background(), "cluster-secret")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if className != "cluster-a" {
-		t.Fatalf("authorized class = %q, want cluster-a", className)
+	if access != (authorizedAccess{ClassName: "cluster-a", Namespace: "cluster-a-sandboxes"}) {
+		t.Fatalf("authorized access = %#v", access)
 	}
-	className, err = server.authorizedClass(context.Background(), "unknown")
+	access, err = server.authorizedAccess(context.Background(), "unknown")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if className != "" {
-		t.Fatalf("unknown token authorized class %q", className)
+	if access != (authorizedAccess{}) {
+		t.Fatalf("unknown token authorized access %#v", access)
+	}
+	if _, err := server.authorizedAccess(context.Background(), "invalid-secret"); err == nil {
+		t.Fatal("access secret without namespace was accepted")
 	}
 }
