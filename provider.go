@@ -11,6 +11,8 @@ import (
 
 	providers "github.com/confidential-containers/cloud-api-adaptor/src/cloud-providers"
 	"github.com/confidential-containers/cloud-api-adaptor/src/cloud-providers/util/cloudinit"
+	sandboxv1alpha1 "github.com/mNi-Cloud/cloud-api-adaptor-provider-kubernetes/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type kubernetesProvider struct {
@@ -57,12 +59,12 @@ func (p *kubernetesProvider) CreateInstance(
 	}
 
 	created, err := p.client.Create(ctx, createSandboxRequest{
-		Name:      podName,
-		SandboxID: sandboxID,
-		UserData:  userData,
-		VCPUs:     spec.VCPUs,
-		MemoryMiB: spec.Memory,
-		Arch:      spec.Arch,
+		WorkloadRef: workloadReference(cloudConfig, podName),
+		SandboxID:   sandboxID,
+		UserData:    userData,
+		VCPUs:       spec.VCPUs,
+		MemoryMiB:   spec.Memory,
+		Arch:        spec.Arch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create Kubernetes Pod Sandbox: %w", err)
@@ -83,6 +85,34 @@ func (p *kubernetesProvider) CreateInstance(
 	}
 
 	return &providers.Instance{ID: created.ID, Name: created.Name, IPs: ips}, nil
+}
+
+func workloadReference(generator cloudinit.CloudConfigGenerator, fallbackName string) sandboxv1alpha1.WorkloadReference {
+	reference := sandboxv1alpha1.WorkloadReference{Name: fallbackName}
+	config, ok := generator.(*cloudinit.CloudConfig)
+	if !ok {
+		return reference
+	}
+	for i := range config.WriteFiles {
+		if config.WriteFiles[i].Path != agentProtocolForwarderConfigPath {
+			continue
+		}
+		var document struct {
+			PodName      string    `json:"pod-name"`
+			PodNamespace string    `json:"pod-namespace"`
+			PodUID       types.UID `json:"pod-uid"`
+		}
+		if json.Unmarshal([]byte(config.WriteFiles[i].Content), &document) != nil {
+			return reference
+		}
+		if document.PodName != "" {
+			reference.Name = document.PodName
+		}
+		reference.Namespace = document.PodNamespace
+		reference.UID = document.PodUID
+		return reference
+	}
+	return reference
 }
 
 const agentProtocolForwarderConfigPath = "/run/peerpod/apf.json"

@@ -13,6 +13,7 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 	sandbox := &sandboxv1alpha1.PodSandbox{
 		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-a", Namespace: "pod-sandbox-system"},
 		Spec: sandboxv1alpha1.PodSandboxSpec{
+			WorkloadRef:       sandboxv1alpha1.WorkloadReference{Namespace: "apps", Name: "web", UID: "pod-uid"},
 			SandboxID:         "sandbox-id",
 			UserDataSecretRef: corev1.LocalObjectReference{Name: "sandbox-a-userdata"},
 			ClassName:         "juneau",
@@ -42,6 +43,11 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 	}
 	if pod.Annotations["juneau.loutres.me/subnet"] != "tenant-subnet" {
 		t.Fatalf("runner lost the requested Juneau subnet: %#v", pod.Annotations)
+	}
+	if pod.Annotations["sandbox.caa.mnicloud.jp/workload-name"] != "web" ||
+		pod.Annotations["sandbox.caa.mnicloud.jp/workload-namespace"] != "apps" ||
+		pod.Annotations["sandbox.caa.mnicloud.jp/workload-uid"] != "pod-uid" {
+		t.Fatalf("runner lost the source workload identity: %#v", pod.Annotations)
 	}
 	if len(pod.Spec.InitContainers) != 1 || pod.Spec.InitContainers[0].Image != "example.test/podvm:v1" {
 		t.Fatalf("PodVM image is not exported by an init container: %#v", pod.Spec.InitContainers)
@@ -92,6 +98,7 @@ func TestDesiredRunnerDoesNotRequireJuneauOrMNiMetadata(t *testing.T) {
 	sandbox := &sandboxv1alpha1.PodSandbox{
 		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-a", Namespace: "pod-sandbox-system", Generation: 1},
 		Spec: sandboxv1alpha1.PodSandboxSpec{
+			WorkloadRef:       sandboxv1alpha1.WorkloadReference{Name: "workload-a"},
 			SandboxID:         "sandbox-id",
 			UserDataSecretRef: corev1.LocalObjectReference{Name: "sandbox-a-userdata"},
 			ClassName:         "generic",

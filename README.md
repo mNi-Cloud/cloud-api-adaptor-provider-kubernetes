@@ -36,7 +36,8 @@ It provides five cooperating artifacts:
 - an authenticated Pod Sandbox API and the `PodSandbox` / `PodSandboxClass`
   resource model;
 - a controller that reconciles `PodSandbox` resources into runner Pods and
-  reports sandbox addresses and readiness;
+  reports the source workload, runner, infrastructure Node, sandbox addresses,
+  and readiness;
 - runner and PodVM artifact images for a concrete VMM implementation;
 - an optional `PeerPodNode` image for KaaS providers that need a real
   kubelet/containerd/CAA path without provisioning a conventional worker VM.
@@ -58,6 +59,20 @@ use the released PeerPodNode image, or install CAA on ordinary workload
 workers. The surrounding service remains responsible for control planes,
 tenant identity, networking, credentials, quotas, upgrades, and physical host
 capacity.
+
+`PodSandbox` is also the infrastructure operator's inventory of running
+peer-pod compute. Each object records the source workload Pod in
+`spec.workloadRef`, requested CPU and memory, and the selected
+`PodSandboxClass`. Its status identifies the runner Pod, infrastructure Node,
+PodVM address, and readiness. The source reference is informational because
+the workload Pod can live in a different Kubernetes cluster; it is not a
+cross-cluster owner reference.
+
+```console
+$ kubectl get podsandboxes -A
+NAMESPACE   NAME        WORKLOAD   CLASS     NODE       READY   IP
+sandbox     psb-...     api-7d9c   default   worker-1   True    10.0.1.24
+```
 
 ## What can be built with it
 

@@ -7,6 +7,9 @@ metadata:
   name: example
   namespace: caa-provider-kubernetes-system
 spec:
+  workloadRef:
+    namespace: applications
+    name: example-workload
   sandboxID: example
   userDataSecretRef:
     name: example-userdata

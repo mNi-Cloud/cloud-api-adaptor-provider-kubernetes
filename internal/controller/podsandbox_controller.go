@@ -99,7 +99,9 @@ func (r *PodSandboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	ready := podReady(&runner) && runner.Status.PodIP != ""
 	base := sandbox.DeepCopy()
-	sandbox.Status.RunnerName = runner.Name
+	sandbox.Status.ObservedGeneration = sandbox.Generation
+	sandbox.Status.RunnerRef = &corev1.LocalObjectReference{Name: runner.Name}
+	sandbox.Status.NodeName = runner.Spec.NodeName
 	if runner.Status.PodIP == "" {
 		sandbox.Status.IPs = nil
 	} else {
@@ -155,6 +157,13 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 	annotations := copyMap(sandboxClass.Spec.Annotations)
 	annotations["sandbox.caa.mnicloud.jp/class"] = sandboxClass.Name
 	annotations["sandbox.caa.mnicloud.jp/template-generation"] = fmt.Sprintf("%d/%d", sandbox.Generation, sandboxClass.Generation)
+	annotations["sandbox.caa.mnicloud.jp/workload-name"] = sandbox.Spec.WorkloadRef.Name
+	if sandbox.Spec.WorkloadRef.Namespace != "" {
+		annotations["sandbox.caa.mnicloud.jp/workload-namespace"] = sandbox.Spec.WorkloadRef.Namespace
+	}
+	if sandbox.Spec.WorkloadRef.UID != "" {
+		annotations["sandbox.caa.mnicloud.jp/workload-uid"] = string(sandbox.Spec.WorkloadRef.UID)
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        sandbox.Name,
@@ -251,6 +260,7 @@ func runnerTermination(pod *corev1.Pod) *corev1.ContainerStateTerminated {
 
 func (r *PodSandboxReconciler) progressing(ctx context.Context, sandbox *sandboxv1alpha1.PodSandbox, reason, message string) (ctrl.Result, error) {
 	base := sandbox.DeepCopy()
+	sandbox.Status.ObservedGeneration = sandbox.Generation
 	apiMeta.SetStatusCondition(&sandbox.Status.Conditions, metav1.Condition{Type: sandboxv1alpha1.ConditionReady, Status: metav1.ConditionFalse, ObservedGeneration: sandbox.Generation, Reason: reason, Message: message})
 	if err := r.Status().Patch(ctx, sandbox, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -260,6 +270,7 @@ func (r *PodSandboxReconciler) progressing(ctx context.Context, sandbox *sandbox
 
 func (r *PodSandboxReconciler) fail(ctx context.Context, sandbox *sandboxv1alpha1.PodSandbox, reason string, reconcileErr error) (ctrl.Result, error) {
 	base := sandbox.DeepCopy()
+	sandbox.Status.ObservedGeneration = sandbox.Generation
 	apiMeta.SetStatusCondition(&sandbox.Status.Conditions, metav1.Condition{Type: sandboxv1alpha1.ConditionReady, Status: metav1.ConditionFalse, ObservedGeneration: sandbox.Generation, Reason: reason, Message: reconcileErr.Error()})
 	if err := r.Status().Patch(ctx, sandbox, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -269,6 +280,7 @@ func (r *PodSandboxReconciler) fail(ctx context.Context, sandbox *sandboxv1alpha
 
 func (r *PodSandboxReconciler) stopped(ctx context.Context, sandbox *sandboxv1alpha1.PodSandbox, reason, message string) (ctrl.Result, error) {
 	base := sandbox.DeepCopy()
+	sandbox.Status.ObservedGeneration = sandbox.Generation
 	apiMeta.SetStatusCondition(&sandbox.Status.Conditions, metav1.Condition{Type: sandboxv1alpha1.ConditionReady, Status: metav1.ConditionFalse, ObservedGeneration: sandbox.Generation, Reason: reason, Message: message})
 	if err := r.Status().Patch(ctx, sandbox, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)

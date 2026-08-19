@@ -17,12 +17,36 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.workloadRef.name
+      name: Workload
+      type: string
+    - jsonPath: .spec.workloadRef.namespace
+      name: Workload Namespace
+      priority: 1
+      type: string
+    - jsonPath: .spec.className
+      name: Class
+      type: string
+    - jsonPath: .spec.vcpus
+      name: vCPU
+      priority: 1
+      type: integer
+    - jsonPath: .spec.memoryMiB
+      name: Memory MiB
+      priority: 1
+      type: integer
+    - jsonPath: .status.nodeName
+      name: Node
+      type: string
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
     - jsonPath: .status.ips[0]
       name: IP
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -83,13 +107,36 @@ spec:
                 format: int64
                 minimum: 1
                 type: integer
+              workloadRef:
+                description: WorkloadRef identifies the source Pod represented by
+                  this sandbox.
+                properties:
+                  name:
+                    description: Name is the workload Pod name in its source cluster.
+                    minLength: 1
+                    type: string
+                  namespace:
+                    description: Namespace is the workload Pod namespace in its source
+                      cluster.
+                    type: string
+                  uid:
+                    description: UID disambiguates recreated workload Pods when the
+                      source reports it.
+                    type: string
+                required:
+                - name
+                type: object
             required:
             - className
             - memoryMiB
             - sandboxID
             - userDataSecretRef
             - vcpus
+            - workloadRef
             type: object
+            x-kubernetes-validations:
+            - message: spec is immutable
+              rule: self == oldSelf
           status:
             description: status defines the observed state of PodSandbox
             properties:
@@ -153,11 +200,33 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               ips:
+                description: IPs contains addresses assigned to the PodSandbox.
                 items:
                   type: string
                 type: array
-              runnerName:
+              nodeName:
+                description: NodeName is the management-cluster Node hosting the runner.
                 type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation reconciled into
+                  status.
+                format: int64
+                type: integer
+              runnerRef:
+                description: RunnerRef identifies the management-cluster Pod hosting
+                  the PodVM.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
             type: object
         required:
         - spec

@@ -20,7 +20,7 @@ type fakeCloudConfig struct {
 func TestGenerateUserDataCapsSandboxMTU(t *testing.T) {
 	config := &cloudinit.CloudConfig{WriteFiles: []cloudinit.WriteFile{{
 		Path:    agentProtocolForwarderConfigPath,
-		Content: `{"pod-network":{"mtu":1500},"pod-name":"smoke"}`,
+		Content: `{"pod-network":{"mtu":1500},"pod-name":"smoke","pod-namespace":"apps","pod-uid":"c848ed86-5137-4817-a2ee-d10a2bedf81a"}`,
 	}}}
 
 	userData, err := generateUserData(config, 1400)
@@ -29,6 +29,10 @@ func TestGenerateUserDataCapsSandboxMTU(t *testing.T) {
 	}
 	if !strings.Contains(userData, `"mtu": 1400`) {
 		t.Fatalf("sandbox MTU was not capped: %s", userData)
+	}
+	reference := workloadReference(config, "fallback")
+	if reference.Namespace != "apps" || reference.Name != "smoke" || string(reference.UID) != "c848ed86-5137-4817-a2ee-d10a2bedf81a" {
+		t.Fatalf("unexpected workload reference: %#v", reference)
 	}
 	if strings.Contains(config.WriteFiles[0].Content, `1400`) {
 		t.Fatal("input cloud config was mutated")
@@ -106,6 +110,9 @@ func TestCreateInstance(t *testing.T) {
 	}
 	if client.created.SandboxID != "sandbox-id" || client.created.UserData != "#cloud-config" || client.created.VCPUs != 2 {
 		t.Fatalf("unexpected request: %#v", client.created)
+	}
+	if client.created.WorkloadRef.Name != "pod-a" {
+		t.Fatalf("unexpected workload reference: %#v", client.created.WorkloadRef)
 	}
 }
 

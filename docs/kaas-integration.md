@@ -16,6 +16,13 @@ Adaptor provider. It owns the provider-facing sandbox lifecycle:
 5. return the sandbox address and readiness to CAA;
 6. stop and garbage-collect the runner and PodVM when the sandbox is deleted.
 
+The `PodSandbox` is the provider administrator's durable correlation point
+between these two clusters. `spec.workloadRef` identifies the workload Pod;
+`status.runnerRef`, `status.nodeName`, `status.ips`, and the Ready condition
+identify its infrastructure-cluster execution. KaaS integrations should not
+replace this with product-specific tenant or cluster fields: a
+`PodSandboxClass` already identifies the configured workload environment.
+
 This boundary is useful because the same implementation can support:
 
 - a Kubernetes cluster with no customer-managed worker pool;

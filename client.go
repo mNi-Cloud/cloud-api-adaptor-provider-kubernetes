@@ -9,15 +9,17 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	sandboxv1alpha1 "github.com/mNi-Cloud/cloud-api-adaptor-provider-kubernetes/api/v1alpha1"
 )
 
 type createSandboxRequest struct {
-	Name      string `json:"name"`
-	SandboxID string `json:"sandboxID"`
-	UserData  string `json:"userData"`
-	VCPUs     int64  `json:"vcpus,omitempty"`
-	MemoryMiB int64  `json:"memoryMiB,omitempty"`
-	Arch      string `json:"arch,omitempty"`
+	WorkloadRef sandboxv1alpha1.WorkloadReference `json:"workloadRef"`
+	SandboxID   string                            `json:"sandboxID"`
+	UserData    string                            `json:"userData"`
+	VCPUs       int64                             `json:"vcpus,omitempty"`
+	MemoryMiB   int64                             `json:"memoryMiB,omitempty"`
+	Arch        string                            `json:"arch,omitempty"`
 }
 
 type sandbox struct {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	sandboxv1alpha1 "github.com/mNi-Cloud/cloud-api-adaptor-provider-kubernetes/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -15,6 +16,85 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+func TestCreateSandboxPersistsWorkloadReference(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandboxv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&sandboxv1alpha1.PodSandbox{}).
+		WithObjects(&sandboxv1alpha1.PodSandboxClass{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a"}}).
+		Build()
+	server, err := New(kubeClient, Config{Namespace: "sandbox", ClassName: "cluster-a", Token: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workloadRef := sandboxv1alpha1.WorkloadReference{
+		Namespace: "applications",
+		Name:      "api-7d9c",
+		UID:       "c848ed86-5137-4817-a2ee-d10a2bedf81a",
+	}
+	sandboxID := "sandbox-id"
+	key := types.NamespacedName{Namespace: "sandbox", Name: sandboxName(sandboxID)}
+	updated := make(chan error, 1)
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			var sandbox sandboxv1alpha1.PodSandbox
+			if err := kubeClient.Get(context.Background(), key, &sandbox); err == nil {
+				sandbox.Status.IPs = []string{"10.90.0.8"}
+				sandbox.Status.Conditions = []metav1.Condition{{
+					Type:               sandboxv1alpha1.ConditionReady,
+					Status:             metav1.ConditionTrue,
+					Reason:             "PodVMReady",
+					Message:            "The PodVM is ready",
+					LastTransitionTime: metav1.Now(),
+				}}
+				updated <- kubeClient.Status().Update(context.Background(), &sandbox)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		updated <- context.DeadlineExceeded
+	}()
+
+	body, err := json.Marshal(createSandboxRequest{
+		WorkloadRef: workloadRef,
+		SandboxID:   sandboxID,
+		UserData:    "userdata",
+		VCPUs:       2,
+		MemoryMiB:   512,
+		Arch:        "amd64",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	request := httptest.NewRequest(http.MethodPost, "/v1/sandboxes", bytes.NewReader(body)).WithContext(requestContext)
+	request = request.WithContext(context.WithValue(request.Context(), authorizedClassContextKey{}, "cluster-a"))
+	response := httptest.NewRecorder()
+	server.createSandbox(response, request)
+	if err := <-updated; err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusCreated, response.Body.String())
+	}
+	var sandbox sandboxv1alpha1.PodSandbox
+	if err := kubeClient.Get(context.Background(), key, &sandbox); err != nil {
+		t.Fatal(err)
+	}
+	if sandbox.Spec.WorkloadRef != workloadRef {
+		t.Fatalf("workload reference = %#v, want %#v", sandbox.Spec.WorkloadRef, workloadRef)
+	}
+}
 
 func TestEnsureTokenSecret(t *testing.T) {
 	t.Parallel()
@@ -65,14 +145,22 @@ func TestCreateSandboxRejectsAnotherClassIdentity(t *testing.T) {
 		&sandboxv1alpha1.PodSandboxClass{ObjectMeta: metav1.ObjectMeta{Name: "cluster-b"}},
 		&sandboxv1alpha1.PodSandbox{
 			ObjectMeta: metav1.ObjectMeta{Name: sandboxName(sandboxID), Namespace: "sandbox"},
-			Spec:       sandboxv1alpha1.PodSandboxSpec{SandboxID: sandboxID, ClassName: "cluster-a"},
+			Spec: sandboxv1alpha1.PodSandboxSpec{
+				WorkloadRef: sandboxv1alpha1.WorkloadReference{Namespace: "apps", Name: "workload-a"},
+				SandboxID:   sandboxID,
+				ClassName:   "cluster-a",
+			},
 		},
 	).Build()
 	server, err := New(client, Config{Namespace: "sandbox", ClassName: "default", Token: "default-secret"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := json.Marshal(createSandboxRequest{SandboxID: sandboxID, UserData: "userdata"})
+	body, err := json.Marshal(createSandboxRequest{
+		WorkloadRef: sandboxv1alpha1.WorkloadReference{Namespace: "apps", Name: "workload-a"},
+		SandboxID:   sandboxID,
+		UserData:    "userdata",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +184,11 @@ func TestDeleteSandboxRejectsAnotherClass(t *testing.T) {
 	}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&sandboxv1alpha1.PodSandbox{
 		ObjectMeta: metav1.ObjectMeta{Name: "psb-one", Namespace: "sandbox"},
-		Spec:       sandboxv1alpha1.PodSandboxSpec{SandboxID: "one", ClassName: "cluster-a"},
+		Spec: sandboxv1alpha1.PodSandboxSpec{
+			WorkloadRef: sandboxv1alpha1.WorkloadReference{Name: "workload-a"},
+			SandboxID:   "one",
+			ClassName:   "cluster-a",
+		},
 	}).Build()
 	server, err := New(client, Config{Namespace: "sandbox", ClassName: "default", Token: "default-secret"})
 	if err != nil {

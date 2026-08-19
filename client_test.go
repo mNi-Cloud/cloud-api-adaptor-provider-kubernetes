@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	sandboxv1alpha1 "github.com/mNi-Cloud/cloud-api-adaptor-provider-kubernetes/api/v1alpha1"
 )
 
 func TestHTTPSandboxClientLifecycle(t *testing.T) {
@@ -27,7 +29,7 @@ func TestHTTPSandboxClientLifecycle(t *testing.T) {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(sandbox{ID: "sandbox-1", Name: request.Name, IPs: []string{"10.90.0.8"}})
+			_ = json.NewEncoder(w).Encode(sandbox{ID: "sandbox-1", Name: request.WorkloadRef.Name, IPs: []string{"10.90.0.8"}})
 		case r.Method == http.MethodDelete:
 			deleted = r.URL.Path
 			w.WriteHeader(http.StatusNoContent)
@@ -41,7 +43,10 @@ func TestHTTPSandboxClientLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := client.Create(context.Background(), createSandboxRequest{Name: "pod-a", SandboxID: "sandbox-id"})
+	created, err := client.Create(context.Background(), createSandboxRequest{
+		WorkloadRef: sandboxv1alpha1.WorkloadReference{Namespace: "apps", Name: "pod-a"},
+		SandboxID:   "sandbox-id",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

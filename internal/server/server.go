@@ -46,12 +46,12 @@ type Server struct {
 }
 
 type createSandboxRequest struct {
-	Name      string `json:"name"`
-	SandboxID string `json:"sandboxID"`
-	UserData  string `json:"userData"`
-	VCPUs     int64  `json:"vcpus,omitempty"`
-	MemoryMiB int64  `json:"memoryMiB,omitempty"`
-	Arch      string `json:"arch,omitempty"`
+	WorkloadRef sandboxv1alpha1.WorkloadReference `json:"workloadRef"`
+	SandboxID   string                            `json:"sandboxID"`
+	UserData    string                            `json:"userData"`
+	VCPUs       int64                             `json:"vcpus,omitempty"`
+	MemoryMiB   int64                             `json:"memoryMiB,omitempty"`
+	Arch        string                            `json:"arch,omitempty"`
 }
 
 type sandboxResponse struct {
@@ -233,8 +233,8 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if request.SandboxID == "" || request.UserData == "" {
-		http.Error(w, "sandboxID and userData are required", http.StatusBadRequest)
+	if request.WorkloadRef.Name == "" || request.SandboxID == "" || request.UserData == "" {
+		http.Error(w, "workloadRef.name, sandboxID, and userData are required", http.StatusBadRequest)
 		return
 	}
 	if request.VCPUs <= 0 {
@@ -272,6 +272,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		sandbox = sandboxv1alpha1.PodSandbox{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.config.Namespace},
 			Spec: sandboxv1alpha1.PodSandboxSpec{
+				WorkloadRef:       request.WorkloadRef,
 				SandboxID:         request.SandboxID,
 				UserDataSecretRef: corev1.LocalObjectReference{Name: secret.Name},
 				ClassName:         className,
@@ -289,7 +290,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		if err := controllerutil.SetControllerReference(&sandbox, secret, s.client.Scheme()); err == nil {
 			_ = s.client.Update(r.Context(), secret)
 		}
-	} else if sandbox.Spec.SandboxID != request.SandboxID || sandbox.Spec.ClassName != className {
+	} else if sandbox.Spec.SandboxID != request.SandboxID || sandbox.Spec.ClassName != className || sandbox.Spec.WorkloadRef != request.WorkloadRef {
 		http.Error(w, "sandbox identity conflict", http.StatusConflict)
 		return
 	}
@@ -303,7 +304,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 		if conditionTrue(sandbox.Status.Conditions, sandboxv1alpha1.ConditionReady) && len(sandbox.Status.IPs) > 0 {
 			completed = true
-			writeJSON(w, http.StatusCreated, sandboxResponse{ID: sandbox.Name, Name: request.Name, IPs: sandbox.Status.IPs})
+			writeJSON(w, http.StatusCreated, sandboxResponse{ID: sandbox.Name, Name: request.WorkloadRef.Name, IPs: sandbox.Status.IPs})
 			return
 		}
 		if condition := conditionByType(sandbox.Status.Conditions, sandboxv1alpha1.ConditionReady); condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == "RunnerFailed" {
