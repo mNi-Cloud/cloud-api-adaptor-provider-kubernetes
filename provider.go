@@ -11,8 +11,6 @@ import (
 
 	providers "github.com/confidential-containers/cloud-api-adaptor/src/cloud-providers"
 	"github.com/confidential-containers/cloud-api-adaptor/src/cloud-providers/util/cloudinit"
-	sandboxv1alpha1 "github.com/mNi-Cloud/cloud-api-adaptor-provider-kubernetes/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type kubernetesProvider struct {
@@ -59,7 +57,7 @@ func (p *kubernetesProvider) CreateInstance(
 	}
 
 	created, err := p.client.Create(ctx, createSandboxRequest{
-		WorkloadRef: workloadReference(cloudConfig, podName),
+		WorkloadRef: sourceWorkloadReference(cloudConfig, podName),
 		SandboxID:   sandboxID,
 		UserData:    userData,
 		VCPUs:       spec.VCPUs,
@@ -87,8 +85,8 @@ func (p *kubernetesProvider) CreateInstance(
 	return &providers.Instance{ID: created.ID, Name: created.Name, IPs: ips}, nil
 }
 
-func workloadReference(generator cloudinit.CloudConfigGenerator, fallbackName string) sandboxv1alpha1.WorkloadReference {
-	reference := sandboxv1alpha1.WorkloadReference{Name: fallbackName}
+func sourceWorkloadReference(generator cloudinit.CloudConfigGenerator, fallbackName string) workloadReference {
+	reference := workloadReference{Name: fallbackName}
 	config, ok := generator.(*cloudinit.CloudConfig)
 	if !ok {
 		return reference
@@ -98,9 +96,9 @@ func workloadReference(generator cloudinit.CloudConfigGenerator, fallbackName st
 			continue
 		}
 		var document struct {
-			PodName      string    `json:"pod-name"`
-			PodNamespace string    `json:"pod-namespace"`
-			PodUID       types.UID `json:"pod-uid"`
+			PodName      string `json:"pod-name"`
+			PodNamespace string `json:"pod-namespace"`
+			PodUID       string `json:"pod-uid"`
 		}
 		if json.Unmarshal([]byte(config.WriteFiles[i].Content), &document) != nil {
 			return reference

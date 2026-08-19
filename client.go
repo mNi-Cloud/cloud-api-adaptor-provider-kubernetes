@@ -9,17 +9,24 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	sandboxv1alpha1 "github.com/mNi-Cloud/cloud-api-adaptor-provider-kubernetes/api/v1alpha1"
 )
 
+// workloadReference is part of the provider HTTP protocol. Keep it independent
+// from Kubernetes API packages because the CAA plugin is built inside the
+// upstream Cloud API Adaptor module.
+type workloadReference struct {
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	UID       string `json:"uid,omitempty"`
+}
+
 type createSandboxRequest struct {
-	WorkloadRef sandboxv1alpha1.WorkloadReference `json:"workloadRef"`
-	SandboxID   string                            `json:"sandboxID"`
-	UserData    string                            `json:"userData"`
-	VCPUs       int64                             `json:"vcpus,omitempty"`
-	MemoryMiB   int64                             `json:"memoryMiB,omitempty"`
-	Arch        string                            `json:"arch,omitempty"`
+	WorkloadRef workloadReference `json:"workloadRef"`
+	SandboxID   string            `json:"sandboxID"`
+	UserData    string            `json:"userData"`
+	VCPUs       int64             `json:"vcpus,omitempty"`
+	MemoryMiB   int64             `json:"memoryMiB,omitempty"`
+	Arch        string            `json:"arch,omitempty"`
 }
 
 type sandbox struct {

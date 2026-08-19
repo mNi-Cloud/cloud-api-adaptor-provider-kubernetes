@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	sandboxv1alpha1 "github.com/mNi-Cloud/cloud-api-adaptor-provider-kubernetes/api/v1alpha1"
 )
 
 func TestHTTPSandboxClientLifecycle(t *testing.T) {
@@ -44,7 +42,7 @@ func TestHTTPSandboxClientLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	created, err := client.Create(context.Background(), createSandboxRequest{
-		WorkloadRef: sandboxv1alpha1.WorkloadReference{Namespace: "apps", Name: "pod-a"},
+		WorkloadRef: workloadReference{Namespace: "apps", Name: "pod-a"},
 		SandboxID:   "sandbox-id",
 	})
 	if err != nil {

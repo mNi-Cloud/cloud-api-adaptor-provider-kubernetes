@@ -30,8 +30,8 @@ func TestGenerateUserDataCapsSandboxMTU(t *testing.T) {
 	if !strings.Contains(userData, `"mtu": 1400`) {
 		t.Fatalf("sandbox MTU was not capped: %s", userData)
 	}
-	reference := workloadReference(config, "fallback")
-	if reference.Namespace != "apps" || reference.Name != "smoke" || string(reference.UID) != "c848ed86-5137-4817-a2ee-d10a2bedf81a" {
+	reference := sourceWorkloadReference(config, "fallback")
+	if reference.Namespace != "apps" || reference.Name != "smoke" || reference.UID != "c848ed86-5137-4817-a2ee-d10a2bedf81a" {
 		t.Fatalf("unexpected workload reference: %#v", reference)
 	}
 	if strings.Contains(config.WriteFiles[0].Content, `1400`) {
