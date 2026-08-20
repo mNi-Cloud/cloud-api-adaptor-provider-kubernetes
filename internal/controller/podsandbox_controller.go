@@ -24,6 +24,7 @@ import (
 
 const (
 	runnerContainerName     = "runner"
+	runnerStateDirArg       = "--state-dir=/run/pod-sandbox"
 	defaultRuntimeAssetsDir = "/opt/kata"
 	defaultNetworkMTU       = 1500
 	defaultOverheadMiB      = 256
@@ -189,7 +190,7 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 					fmt.Sprintf("--network-mtu=%d", networkMTU),
 					"--image-dir=/var/lib/podvm/image",
 					"--config-dir=/var/lib/podvm/config",
-					"--state-dir=/run/pod-sandbox",
+					runnerStateDirArg,
 					"--runtime-assets-dir=/opt/podvm-runtime",
 				},
 				Resources: resources,
@@ -208,7 +209,7 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 				},
 				ReadinessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{
-						"/runner", "ready", "--state-dir=/run/pod-sandbox",
+						"/runner", "ready", runnerStateDirArg,
 					}}},
 					InitialDelaySeconds: 2,
 					PeriodSeconds:       2,

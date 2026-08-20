@@ -73,7 +73,7 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 	if container.ReadinessProbe == nil || container.ReadinessProbe.Exec == nil {
 		t.Fatal("runner readiness must use the guest-aware exec probe")
 	}
-	if got := container.ReadinessProbe.Exec.Command; len(got) != 3 || got[0] != "/runner" || got[1] != "ready" || got[2] != "--state-dir=/run/pod-sandbox" {
+	if got := container.ReadinessProbe.Exec.Command; len(got) != 3 || got[0] != "/runner" || got[1] != "ready" || got[2] != runnerStateDirArg {
 		t.Fatalf("runner readiness probe must only check the PodVM and guest agent: %#v", got)
 	}
 	wants := map[string]bool{"runtime-assets": false, "kvm": false, "tun": false, "image": false, "config": false, "state": false}
