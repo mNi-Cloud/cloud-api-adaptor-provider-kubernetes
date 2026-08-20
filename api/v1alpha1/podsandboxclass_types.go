@@ -71,14 +71,6 @@ type PodSandboxClassSpec struct {
 	// +kubebuilder:default=256
 	// +optional
 	MemoryOverheadMiB int64 `json:"memoryOverheadMiB,omitempty"`
-
-	// StartupGraceSeconds delays readiness until guest initialization has
-	// completed after the PodVM starts.
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=300
-	// +kubebuilder:default=30
-	// +optional
-	StartupGraceSeconds int32 `json:"startupGraceSeconds,omitempty"`
 }
 
 // +kubebuilder:object:root=true

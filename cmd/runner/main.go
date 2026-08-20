@@ -53,8 +53,7 @@ type options struct {
 }
 
 type readyOptions struct {
-	stateDir           string
-	startupGraceSecond int
+	stateDir string
 }
 
 type networkState struct {
@@ -76,13 +75,7 @@ func main() {
 	case "ready":
 		opts := parseReadyOptions(os.Args[2:])
 		socket := filepath.Join(opts.stateDir, "cloud-hypervisor.sock")
-		if err := vmInfo(socket); err != nil {
-			os.Exit(1)
-		}
-		if err := startupGraceElapsed(socket, time.Duration(opts.startupGraceSecond)*time.Second); err != nil {
-			os.Exit(1)
-		}
-		if err := agentReady(net.JoinHostPort(guestIP, forwarderPort)); err != nil {
+		if err := readyCheck(socket, net.JoinHostPort(guestIP, forwarderPort)); err != nil {
 			os.Exit(1)
 		}
 	case "stop":
@@ -121,9 +114,20 @@ func parseReadyOptions(args []string) readyOptions {
 	var opts readyOptions
 	flags := flag.NewFlagSet("ready", flag.ExitOnError)
 	flags.StringVar(&opts.stateDir, "state-dir", defaultStateDir, "PodVM state directory")
-	flags.IntVar(&opts.startupGraceSecond, "startup-grace-seconds", 30, "guest initialization grace period")
 	_ = flags.Parse(args)
 	return opts
+}
+
+// readyCheck reports whether the PodVM is ready to serve CAA requests. It
+// succeeds only when the Cloud Hypervisor API socket answers vm.info and the
+// guest agent-protocol-forwarder accepts connections. The forwarder is started
+// by cloud-init after guest initialization, so its TCP readiness is the
+// guest-side signal that initialization has completed.
+func readyCheck(socket, agentTarget string) error {
+	if err := vmInfo(socket); err != nil {
+		return err
+	}
+	return agentReady(agentTarget)
 }
 
 func run(opts options) error {
@@ -333,20 +337,6 @@ func agentReady(target string) error {
 		return err
 	}
 	return connection.Close()
-}
-
-func startupGraceElapsed(socket string, grace time.Duration) error {
-	if grace <= 0 {
-		return nil
-	}
-	info, err := os.Stat(socket)
-	if err != nil {
-		return err
-	}
-	if remaining := grace - time.Since(info.ModTime()); remaining > 0 {
-		return fmt.Errorf("guest initialization grace period has %s remaining", remaining.Round(time.Second))
-	}
-	return nil
 }
 
 func proxyConnection(connection net.Conn, target string) {

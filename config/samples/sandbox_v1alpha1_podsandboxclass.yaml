@@ -8,4 +8,3 @@ spec:
   networkMTU: 1500
   runtimeAssetsDir: /opt/kata
   memoryOverheadMiB: 256
-  startupGraceSeconds: 30
