@@ -24,13 +24,12 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 	sandboxClass := &sandboxv1alpha1.PodSandboxClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "juneau", Generation: 3},
 		Spec: sandboxv1alpha1.PodSandboxClassSpec{
-			RunnerImage:         "example.test/runner:v1",
-			PodVMImage:          "example.test/podvm:v1",
-			NetworkMTU:          1400,
-			Annotations:         map[string]string{"juneau.loutres.me/subnet": "tenant-subnet"},
-			NodeSelector:        map[string]string{"mnicloud.jp/kata": "true"},
-			MemoryOverheadMiB:   256,
-			StartupGraceSeconds: 45,
+			RunnerImage:       "example.test/runner:v1",
+			PodVMImage:        "example.test/podvm:v1",
+			NetworkMTU:        1400,
+			Annotations:       map[string]string{"juneau.loutres.me/subnet": "tenant-subnet"},
+			NodeSelector:      map[string]string{"mnicloud.jp/kata": "true"},
+			MemoryOverheadMiB: 256,
 		},
 	}
 
@@ -74,8 +73,8 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 	if container.ReadinessProbe == nil || container.ReadinessProbe.Exec == nil {
 		t.Fatal("runner readiness must use the guest-aware exec probe")
 	}
-	if got := container.ReadinessProbe.Exec.Command; len(got) != 4 || got[3] != "--startup-grace-seconds=45" {
-		t.Fatalf("runner readiness lost the class startup grace: %#v", got)
+	if got := container.ReadinessProbe.Exec.Command; len(got) != 3 || got[0] != "/runner" || got[1] != "ready" || got[2] != "--state-dir=/run/pod-sandbox" {
+		t.Fatalf("runner readiness probe must only check the PodVM and guest agent: %#v", got)
 	}
 	wants := map[string]bool{"runtime-assets": false, "kvm": false, "tun": false, "image": false, "config": false, "state": false}
 	for _, mount := range container.VolumeMounts {

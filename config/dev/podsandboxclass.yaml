@@ -12,4 +12,3 @@ spec:
     mnicloud.jp/kata: "true"
   runtimeAssetsDir: /opt/kata
   memoryOverheadMiB: 256
-  startupGraceSeconds: 30

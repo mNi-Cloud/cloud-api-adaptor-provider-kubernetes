@@ -27,7 +27,6 @@ const (
 	defaultRuntimeAssetsDir = "/opt/kata"
 	defaultNetworkMTU       = 1500
 	defaultOverheadMiB      = 256
-	defaultStartupGrace     = 30
 	volumeImage             = "image"
 	volumeConfig            = "config"
 	volumeState             = "state"
@@ -136,10 +135,6 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 	if overhead == 0 {
 		overhead = defaultOverheadMiB
 	}
-	startupGrace := sandboxClass.Spec.StartupGraceSeconds
-	if startupGrace == 0 {
-		startupGrace = defaultStartupGrace
-	}
 	overheadMiB := sandbox.Spec.MemoryMiB + overhead
 	resources := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -213,7 +208,7 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 				},
 				ReadinessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{
-						"/runner", "ready", "--state-dir=/run/pod-sandbox", fmt.Sprintf("--startup-grace-seconds=%d", startupGrace),
+						"/runner", "ready", "--state-dir=/run/pod-sandbox",
 					}}},
 					InitialDelaySeconds: 2,
 					PeriodSeconds:       2,

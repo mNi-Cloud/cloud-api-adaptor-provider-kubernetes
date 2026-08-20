@@ -2,11 +2,10 @@ package main
 
 import (
 	"net"
-	"os"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestRenderNetworkConfig(t *testing.T) {
@@ -37,24 +36,66 @@ func TestRandomMACIsLocallyAdministeredUnicast(t *testing.T) {
 	}
 }
 
-func TestStartupGraceElapsed(t *testing.T) {
+func TestReadyCheckRequiresCloudHypervisorAPI(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "cloud-hypervisor.sock")
-	if err := os.WriteFile(socket, nil, 0o600); err != nil {
+	agent := startAgentListener(t)
+	if err := readyCheck(socket, agent); err == nil {
+		t.Fatal("readyCheck succeeded without a Cloud Hypervisor API socket")
+	}
+}
+
+func TestReadyCheckRequiresGuestAgent(t *testing.T) {
+	socket := startCloudHypervisorAPI(t)
+	if err := readyCheck(socket, "127.0.0.1:0"); err == nil {
+		t.Fatal("readyCheck succeeded without a reachable guest agent")
+	}
+}
+
+func TestReadyCheckSucceedsWhenVMAndAgentAreReady(t *testing.T) {
+	socket := startCloudHypervisorAPI(t)
+	agent := startAgentListener(t)
+	if err := readyCheck(socket, agent); err != nil {
+		t.Fatalf("readyCheck failed for a ready PodVM: %v", err)
+	}
+}
+
+// startCloudHypervisorAPI serves vm.info on a unix socket so readyCheck can
+// exercise the real HTTP-over-unix client path.
+func startCloudHypervisorAPI(t *testing.T) string {
+	t.Helper()
+	socket := filepath.Join(t.TempDir(), "cloud-hypervisor.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
 		t.Fatal(err)
 	}
+	server := &http.Server{Handler: http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/vm.info" {
+			http.NotFound(response, request)
+			return
+		}
+		response.WriteHeader(http.StatusOK)
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	return socket
+}
 
-	if err := startupGraceElapsed(socket, time.Minute); err == nil {
-		t.Fatal("startup grace unexpectedly elapsed for a new socket")
-	}
-
-	started := time.Now().Add(-2 * time.Minute)
-	if err := os.Chtimes(socket, started, started); err != nil {
+// startAgentListener accepts connections like the guest agent-protocol-forwarder.
+func startAgentListener(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := startupGraceElapsed(socket, time.Minute); err != nil {
-		t.Fatalf("startup grace did not elapse: %v", err)
-	}
-	if err := startupGraceElapsed(socket, 0); err != nil {
-		t.Fatalf("zero startup grace must be disabled: %v", err)
-	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_ = connection.Close()
+		}
+	}()
+	return listener.Addr().String()
 }

@@ -91,15 +91,6 @@ spec:
                   RuntimeAssetsDir is the host directory containing the VMM and other
                   implementation-specific assets used by the runner.
                 type: string
-              startupGraceSeconds:
-                default: 30
-                description: |-
-                  StartupGraceSeconds delays readiness until guest initialization has
-                  completed after the PodVM starts.
-                format: int32
-                maximum: 300
-                minimum: 0
-                type: integer
               tolerations:
                 description: Tolerations allow runner Pods to use dedicated virtualization
                   nodes.
