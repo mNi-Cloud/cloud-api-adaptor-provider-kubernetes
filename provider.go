@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -166,39 +165,14 @@ func generateUserData(generator cloudinit.CloudConfigGenerator, networkMTU int) 
 	if len(apfConfig) == 0 {
 		return "", fmt.Errorf("agent protocol forwarder config is missing")
 	}
-	generated, err := adjusted.Generate()
-	if err != nil {
-		return "", err
-	}
-	// bootcmd runs before the guest services are started. Installing and loading
-	// the drop-in here avoids restarting CDH after Kata Agent has established its
-	// TTRPC client, which would invalidate that connection.
-	encodedAPFConfig := base64.StdEncoding.EncodeToString(apfConfig)
-	encodedAPFOrdering := base64.StdEncoding.EncodeToString([]byte(apfOrderingDropIn))
-	encodedDropIn := base64.StdEncoding.EncodeToString([]byte(cdhProxyDropIn))
-	proxySetup := fmt.Sprintf(
-		"\nbootcmd:\n"+
-			"  - [systemctl, mask, --runtime, agent-protocol-forwarder.service]\n"+
-			"  - [systemctl, stop, --no-block, agent-protocol-forwarder.service]\n"+
-			"  - [mkdir, -p, /run/peerpod]\n"+
-			"  - [sh, -c, \"echo %s | base64 -d > %s\"]\n"+
-			"  - [mkdir, -p, /etc/systemd/system/agent-protocol-forwarder.service.d]\n"+
-			"  - [sh, -c, \"echo %s | base64 -d > %s\"]\n"+
-			"  - [mkdir, -p, /etc/systemd/system/confidential-data-hub.service.d]\n"+
-			"  - [sh, -c, \"echo %s | base64 -d > %s\"]\n"+
-			"  - [systemctl, daemon-reload]\n"+
-			"\nruncmd:\n"+
-			"  - [systemctl, unmask, --runtime, agent-protocol-forwarder.service]\n"+
-			"  - [systemctl, daemon-reload]\n"+
-			"  - [systemctl, restart, --no-block, agent-protocol-forwarder.service]\n",
-		encodedAPFConfig,
-		agentProtocolForwarderConfigPath,
-		encodedAPFOrdering,
-		apfOrderingDropInPath,
-		encodedDropIn,
-		cdhProxyDropInPath,
+	// The direct-kernel guest provisions write_files before starting Kata Agent
+	// and APF. Keep all bootstrap data inside the strict cloud-config subset
+	// understood by process-user-data; bootcmd/runcmd are intentionally absent.
+	adjusted.WriteFiles = append(adjusted.WriteFiles,
+		cloudinit.WriteFile{Path: apfOrderingDropInPath, Content: apfOrderingDropIn},
+		cloudinit.WriteFile{Path: cdhProxyDropInPath, Content: cdhProxyDropIn},
 	)
-	return generated + proxySetup, nil
+	return adjusted.Generate()
 }
 
 func (p *kubernetesProvider) DeleteInstance(ctx context.Context, instanceID string) error {

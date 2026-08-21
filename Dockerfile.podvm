@@ -1,8 +1,21 @@
+ARG KATA_DEPLOY_IMAGE=quay.io/kata-containers/kata-deploy:4.0.0
 ARG PODVM_IMAGE=quay.io/confidential-containers/podvm-generic-ubuntu-amd64@sha256:2ea3afd8f1726b5f810c62d961bddff10985dab45754847f3fe593dc008334be
 ARG TOOLBOX_IMAGE=busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
 
-FROM ${PODVM_IMAGE} AS podvm
-FROM ${TOOLBOX_IMAGE}
+FROM ${KATA_DEPLOY_IMAGE} AS kata
+FROM ${PODVM_IMAGE} AS generic-podvm
 
-COPY --from=podvm /*.qcow2 /podvm/disk.qcow2
-ENTRYPOINT ["cp", "/podvm/disk.qcow2", "/output/disk.qcow2"]
+FROM debian:13-slim AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends e2fsprogs qemu-utils zstd \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=kata /opt/kata-artifacts/tarballs/kata-static-kernel.tar.zst /input/kernel.tar.zst
+COPY --from=kata /opt/kata-artifacts/tarballs/kata-static-rootfs-image.tar.zst /input/rootfs.tar.zst
+COPY --from=generic-podvm /*.qcow2 /input/generic-podvm.qcow2
+COPY podvm-direct /src
+RUN /src/build-image.sh /input /output
+
+FROM ${TOOLBOX_IMAGE}
+COPY --from=builder /output/vmlinux /podvm/vmlinux
+COPY --from=builder /output/rootfs.img /podvm/rootfs.img
+ENTRYPOINT ["sh", "-c", "cp /podvm/vmlinux /podvm/rootfs.img /output/"]

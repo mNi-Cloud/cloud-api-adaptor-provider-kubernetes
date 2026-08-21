@@ -1,0 +1,5 @@
+[Unit]
+Description=mNi PodVM
+Requires=podvm.service
+After=local-fs.target
+AllowIsolate=yes

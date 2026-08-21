@@ -192,6 +192,8 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 					"--config-dir=/var/lib/podvm/config",
 					runnerStateDirArg,
 					"--runtime-assets-dir=/opt/podvm-runtime",
+					"--kernel=/var/lib/podvm/image/vmlinux",
+					"--rootfs=/var/lib/podvm/image/rootfs.img",
 				},
 				Resources: resources,
 				SecurityContext: &corev1.SecurityContext{
@@ -200,7 +202,7 @@ func desiredRunner(sandbox *sandboxv1alpha1.PodSandbox, sandboxClass *sandboxv1a
 					RunAsUser:                ptr.To[int64](0),
 				},
 				VolumeMounts: []corev1.VolumeMount{
-					{Name: volumeImage, MountPath: "/var/lib/podvm/image", ReadOnly: true},
+					{Name: volumeImage, MountPath: "/var/lib/podvm/image"},
 					{Name: volumeConfig, MountPath: "/var/lib/podvm/config", ReadOnly: true},
 					{Name: volumeState, MountPath: "/run/pod-sandbox"},
 					{Name: volumeRuntimeAssets, MountPath: "/opt/podvm-runtime", ReadOnly: true},

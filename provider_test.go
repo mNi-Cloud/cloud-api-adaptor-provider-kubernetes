@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -41,14 +40,6 @@ func TestGenerateUserDataCapsSandboxMTU(t *testing.T) {
 		agentProtocolForwarderConfigPath,
 		apfOrderingDropInPath,
 		cdhProxyDropInPath,
-		"bootcmd:",
-		"base64 -d",
-		"systemctl, mask, --runtime, agent-protocol-forwarder.service",
-		"systemctl, stop, --no-block, agent-protocol-forwarder.service",
-		"systemctl, daemon-reload",
-		"runcmd:",
-		"systemctl, unmask, --runtime, agent-protocol-forwarder.service",
-		"systemctl, restart, --no-block, agent-protocol-forwarder.service",
 	} {
 		if !strings.Contains(userData, expected) {
 			t.Fatalf("generated cloud config does not contain %q: %s", expected, userData)
@@ -57,8 +48,11 @@ func TestGenerateUserDataCapsSandboxMTU(t *testing.T) {
 	if strings.Contains(userData, "restart, confidential-data-hub.service") {
 		t.Fatalf("CDH must not be restarted after Kata Agent connects: %s", userData)
 	}
-	if !strings.Contains(userData, base64.StdEncoding.EncodeToString([]byte(apfOrderingDropIn))) {
+	if !strings.Contains(userData, "Requires=netns@podns.service") {
 		t.Fatalf("APF service ordering is missing: %s", userData)
+	}
+	if strings.Contains(userData, "bootcmd:") || strings.Contains(userData, "runcmd:") {
+		t.Fatalf("direct-kernel user data must use write_files only: %s", userData)
 	}
 }
 
