@@ -36,6 +36,19 @@ func TestRandomMACIsLocallyAdministeredUnicast(t *testing.T) {
 	}
 }
 
+func TestCloudHypervisorArgsDefaultBootsFirmwareFromQcow2Overlay(t *testing.T) {
+	args := cloudHypervisorArgs(options{cpus: 1, memoryMiB: 512, firmware: "/usr/share/cloud-hypervisor/CLOUDHV.fd"}, "/sock", "/root.qcow2", "/cidata.img", "02:00:00:00:00:08")
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"--firmware /usr/share/cloud-hypervisor/CLOUDHV.fd", "path=/root.qcow2,image_type=qcow2,backing_files=on", "path=/cidata.img,readonly=on,image_type=raw"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("default args do not contain %q:", want)
+		}
+	}
+	if strings.Contains(joined, "--kernel") {
+		t.Errorf("default args unexpectedly use direct-kernel boot")
+	}
+}
+
 func TestReadyCheckRequiresCloudHypervisorAPI(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "cloud-hypervisor.sock")
 	agent := startAgentListener(t)

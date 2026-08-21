@@ -12,7 +12,7 @@ ADD --checksum=sha256:edd3ceb8de672ec4317a9d68de1f5edc9f48ef2c0283853c7c68133257
     https://github.com/cloud-hypervisor/edk2/releases/download/ch-f308d878a6/CLOUDHV.fd \
     /usr/share/cloud-hypervisor/CLOUDHV.fd
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends genisoimage iproute2 iptables procps qemu-utils \
+	&& apt-get install -y --no-install-recommends e2fsprogs genisoimage iproute2 iptables procps qemu-utils \
     && chmod 0444 /usr/share/cloud-hypervisor/CLOUDHV.fd \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder --chmod=0555 /out/runner /runner

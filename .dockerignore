@@ -14,3 +14,7 @@
 !config/peer-pod-node/
 !config/peer-pod-node/*.toml
 !config/peer-pod-node/*.yaml
+
+# Direct-kernel PodVM build inputs
+!podvm-direct/
+!podvm-direct/**

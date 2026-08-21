@@ -1,0 +1,93 @@
+#!/bin/sh
+exec >/dev/console 2>&1
+set -eux
+
+umount /media/cidata 2>/dev/null || true
+rm -rf /run/cidata
+mkdir -p /media/cidata /run/kata-containers /run/netns /run/peerpod
+
+for device in /dev/disk/by-label/cidata /dev/sr0 /dev/vdb; do
+	if [ -e "$device" ] && mount -t ext4 -o ro "$device" /media/cidata; then
+		break
+	fi
+done
+
+if ! mountpoint -q /media/cidata; then
+	echo "cidata disk is unavailable" >&2
+	exit 1
+fi
+
+# Older CAA providers append cloud-init-only bootcmd/runcmd sections. The
+# minimal guest consumes the strict write_files subset, so normalize it before
+# process-user-data parses the document. New providers already omit these.
+mkdir -p /run/cidata
+sed '/^bootcmd:/,$d' /media/cidata/user-data > /run/cidata/user-data
+umount /media/cidata
+mount --bind /run/cidata /media/cidata
+
+/usr/local/bin/process-user-data provision-files --user-data-fetch-timeout=10
+
+ip link set eth0 up
+ip address replace 192.0.2.2/30 dev eth0
+ip route replace default via 192.0.2.1 dev eth0
+
+# Guest-pull requests are handled by the Confidential Data Hub. Route its
+# registry traffic through the Runner's per-Pod HTTP proxy, as the full PodVM
+# image did through a systemd drop-in generated from cloud-init.
+export HTTP_PROXY=http://192.0.2.1:3128
+export HTTPS_PROXY=http://192.0.2.1:3128
+export NO_PROXY=127.0.0.1,localhost
+export http_proxy="$HTTP_PROXY"
+export https_proxy="$HTTPS_PROXY"
+export no_proxy="$NO_PROXY"
+export OCICRYPT_KEYPROVIDER_CONFIG=/etc/ocicrypt_config.json
+if [ -f /run/peerpod/auth.json ]; then
+	export CDH_DEFAULT_IMAGE_AUTHENTICATED_REGISTRY_CREDENTIALS=file:///run/peerpod/auth.json
+fi
+
+mkdir -p /run/confidential-containers/attestation-agent
+if [ -f /run/peerpod/aa.toml ]; then
+	/usr/local/bin/attestation-agent -c /run/peerpod/aa.toml &
+else
+	/usr/local/bin/attestation-agent &
+fi
+aa_pid=$!
+
+if [ -f /run/peerpod/cdh.toml ]; then
+	/usr/local/bin/confidential-data-hub -c /run/peerpod/cdh.toml &
+else
+	/usr/local/bin/confidential-data-hub &
+fi
+cdh_pid=$!
+
+attempt=0
+while [ ! -S /run/confidential-containers/cdh.sock ]; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 200 ]; then
+		echo "confidential-data-hub socket did not become ready" >&2
+		exit 1
+	fi
+	sleep 0.05
+done
+
+ip netns delete podns 2>/dev/null || true
+ip netns add podns
+ip netns exec podns ip link set lo up
+
+/usr/bin/kata-agent --config /etc/agent-config.toml &
+agent_pid=$!
+trap 'kill "$agent_pid" "$cdh_pid" "$aa_pid" 2>/dev/null || true' EXIT INT TERM
+
+attempt=0
+while [ ! -S /run/kata-containers/agent.sock ]; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 100 ]; then
+		echo "kata-agent socket did not become ready" >&2
+		exit 1
+	fi
+	sleep 0.05
+done
+
+exec /usr/local/bin/agent-protocol-forwarder \
+	-pod-namespace /run/netns/podns \
+	-kata-agent-socket /run/kata-containers/agent.sock

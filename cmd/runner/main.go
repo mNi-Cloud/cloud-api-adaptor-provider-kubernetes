@@ -21,24 +21,28 @@ import (
 )
 
 const (
-	defaultStateDir = "/run/pod-sandbox"
-	primaryLink     = "eth0"
-	bridgeName      = "podvm-br0"
-	tapName         = "podvm-tap0"
-	managementCIDR  = "192.0.2.0/30"
-	hostAddress     = "192.0.2.1/30"
-	guestAddress    = "192.0.2.2/30"
-	guestIP         = "192.0.2.2"
-	forwarderPort   = "15150"
-	proxyPort       = "3128"
-	vxlanPort       = "4789"
-	commandAdd      = "add"
-	commandDevice   = "dev"
-	commandSet      = "set"
-	commandIPTables = "iptables"
-	commandLink     = "link"
-	chainForward    = "FORWARD"
-	targetAccept    = "ACCEPT"
+	defaultStateDir    = "/run/pod-sandbox"
+	primaryLink        = "eth0"
+	bridgeName         = "podvm-br0"
+	tapName            = "podvm-tap0"
+	managementCIDR     = "192.0.2.0/30"
+	hostAddress        = "192.0.2.1/30"
+	guestAddress       = "192.0.2.2/30"
+	guestIP            = "192.0.2.2"
+	forwarderPort      = "15150"
+	proxyPort          = "3128"
+	vxlanPort          = "4789"
+	commandAdd         = "add"
+	commandDevice      = "dev"
+	commandSet         = "set"
+	commandIPTables    = "iptables"
+	commandLink        = "link"
+	chainForward       = "FORWARD"
+	targetAccept       = "ACCEPT"
+	directKernelParams = "reboot=k panic=1 systemd.unit=podvm.target quiet " +
+		"root=/dev/vda1 rootflags=data=ordered,errors=remount-ro rw rootfstype=ext4 " +
+		"no_timer_check noreplace-smp console=ttyS0 systemd.log_target=console " +
+		"cgroup_no_v1=all systemd.unified_cgroup_hierarchy=1"
 )
 
 type options struct {
@@ -50,6 +54,10 @@ type options struct {
 	stateDir         string
 	runtimeAssetsDir string
 	firmware         string
+	kernelPath       string
+	initramfsPath    string
+	rootfsPath       string
+	kernelParams     string
 }
 
 type readyOptions struct {
@@ -99,6 +107,19 @@ func parseRunOptions(args []string) options {
 	flags.StringVar(&opts.stateDir, "state-dir", defaultStateDir, "writable PodVM state directory")
 	flags.StringVar(&opts.runtimeAssetsDir, "runtime-assets-dir", "/opt/podvm-runtime", "PodVM runtime assets directory")
 	flags.StringVar(&opts.firmware, "firmware", "/usr/share/cloud-hypervisor/CLOUDHV.fd", "Cloud Hypervisor UEFI firmware")
+	flags.StringVar(
+		&opts.kernelPath, "kernel", "",
+		"kernel image for direct-kernel boot; when set, the PodVM boots without firmware",
+	)
+	flags.StringVar(&opts.initramfsPath, "initramfs", "", "initramfs image for direct-kernel boot")
+	flags.StringVar(
+		&opts.rootfsPath, "rootfs", "",
+		"raw rootfs disk image for direct-kernel boot; when set, no qcow2 overlay is created",
+	)
+	flags.StringVar(
+		&opts.kernelParams, "kernel-params", "",
+		"kernel command line parameters (space-separated) for direct-kernel boot",
+	)
 	_ = flags.Parse(args)
 	return opts
 }
@@ -172,18 +193,7 @@ func run(opts options) error {
 	cloudHypervisor := filepath.Join(opts.runtimeAssetsDir, "bin", "cloud-hypervisor")
 	rootDisk := filepath.Join(opts.stateDir, "root.qcow2")
 	seedDisk := filepath.Join(opts.stateDir, "cidata.img")
-	cmd := exec.Command(cloudHypervisor,
-		"--api-socket", socket,
-		"--cpus", fmt.Sprintf("boot=%d", opts.cpus),
-		"--memory", fmt.Sprintf("size=%dM", opts.memoryMiB),
-		"--firmware", opts.firmware,
-		"--disk",
-		fmt.Sprintf("path=%s,image_type=qcow2,backing_files=on", rootDisk),
-		fmt.Sprintf("path=%s,readonly=on,image_type=raw", seedDisk),
-		"--net", fmt.Sprintf("tap=%s,mac=%s", tapName, guestMAC),
-		"--serial", "tty",
-		"--console", "off",
-	)
+	cmd := exec.Command(cloudHypervisor, cloudHypervisorArgs(opts, socket, rootDisk, seedDisk, guestMAC)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -209,11 +219,54 @@ func run(opts options) error {
 	}
 }
 
+// cloudHypervisorArgs renders the Cloud Hypervisor command line for a run.
+// Without --kernel the PodVM boots through UEFI firmware from a qcow2 overlay
+// backed by the image directory. When --kernel is set, the PodVM boots the
+// kernel directly with an optional initramfs and an optional raw rootfs disk,
+// which skips firmware (the current default path) for a faster cold start.
+func cloudHypervisorArgs(opts options, socket, rootDisk, seedDisk, guestMAC string) []string {
+	args := []string{
+		"--api-socket", socket,
+		"--cpus", fmt.Sprintf("boot=%d", opts.cpus),
+		"--memory", fmt.Sprintf("size=%dM", opts.memoryMiB),
+	}
+	if opts.kernelPath == "" {
+		args = append(args,
+			"--firmware", opts.firmware,
+			"--disk",
+			fmt.Sprintf("path=%s,image_type=qcow2,backing_files=on", rootDisk),
+			fmt.Sprintf("path=%s,readonly=on,image_type=raw", seedDisk),
+		)
+	} else {
+		args = append(args, "--kernel", opts.kernelPath)
+		if opts.initramfsPath != "" {
+			args = append(args, "--initramfs", opts.initramfsPath)
+		}
+		params := strings.TrimSpace(opts.kernelParams)
+		if params == "" {
+			params = directKernelParams
+		}
+		args = append(args, "--cmdline", params)
+		args = append(args, "--disk")
+		if opts.rootfsPath != "" {
+			args = append(args, fmt.Sprintf("path=%s,image_type=raw", opts.rootfsPath))
+		}
+		args = append(args, fmt.Sprintf("path=%s,readonly=on,image_type=raw", seedDisk))
+	}
+	return append(args,
+		"--net", fmt.Sprintf("tap=%s,mac=%s", tapName, guestMAC),
+		"--serial", "tty",
+		"--console", "off",
+	)
+}
+
 func prepareDisks(opts options, network networkState, guestMAC string) error {
 	rootDisk := filepath.Join(opts.stateDir, "root.qcow2")
 	image := filepath.Join(opts.imageDir, "disk.qcow2")
-	if err := command("qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", image, rootDisk); err != nil {
-		return fmt.Errorf("create root overlay: %w", err)
+	if opts.kernelPath == "" {
+		if err := command("qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", image, rootDisk); err != nil {
+			return fmt.Errorf("create root overlay: %w", err)
+		}
 	}
 	seedDir := filepath.Join(opts.stateDir, "cidata")
 	if err := os.MkdirAll(seedDir, 0o700); err != nil {
@@ -238,6 +291,12 @@ func prepareDisks(opts options, network networkState, guestMAC string) error {
 		return err
 	}
 	seedDisk := filepath.Join(opts.stateDir, "cidata.img")
+	if opts.kernelPath != "" {
+		if err := command("mke2fs", "-q", "-t", "ext4", "-L", "cidata", "-d", seedDir, seedDisk, "4M"); err != nil {
+			return fmt.Errorf("create direct-kernel config disk: %w", err)
+		}
+		return nil
+	}
 	if err := command(
 		"genisoimage", "-quiet", "-output", seedDisk,
 		"-volid", "cidata", "-joliet", "-rock", seedDir,
@@ -439,7 +498,11 @@ func randomMAC() (string, error) {
 	return net.HardwareAddr(mac).String(), nil
 }
 
-func command(name string, args ...string) error {
+// command is swappable so tests can stub qemu-img and genisoimage, which are
+// not available in every development environment.
+var command = runCommand
+
+func runCommand(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	var stderr bytes.Buffer
 	cmd.Stdout = os.Stdout

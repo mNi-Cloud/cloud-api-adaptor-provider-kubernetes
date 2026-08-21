@@ -62,6 +62,8 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 		"--image-dir=/var/lib/podvm/image",
 		"--config-dir=/var/lib/podvm/config",
 		"--runtime-assets-dir=/opt/podvm-runtime",
+		"--kernel=/var/lib/podvm/image/vmlinux",
+		"--rootfs=/var/lib/podvm/image/rootfs.img",
 	} {
 		if !contains(container.Args, expected) {
 			t.Errorf("runner args do not contain contract argument %q: %#v", expected, container.Args)
@@ -80,6 +82,9 @@ func TestDesiredRunnerUsesSharedKataNodeWithoutKataRuntimeClass(t *testing.T) {
 	for _, mount := range container.VolumeMounts {
 		if _, ok := wants[mount.Name]; ok {
 			wants[mount.Name] = true
+		}
+		if mount.Name == volumeImage && mount.ReadOnly {
+			t.Error("direct-kernel rootfs must be writable by Cloud Hypervisor")
 		}
 	}
 	for name, found := range wants {
